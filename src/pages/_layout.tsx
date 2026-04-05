@@ -44,7 +44,6 @@ import { useThemeMode } from '@/services/states'
 import getSystem from '@/utils/get-system'
 
 import {
-  useAppInitialization,
   useCustomTheme,
   useLayoutEvents,
   useLoadingOverlay,
@@ -217,7 +216,6 @@ const Layout = () => {
   )
 
   useLoadingOverlay(themeReady)
-  useAppInitialization()
 
   const handleNotice = useCallback(
     (payload: [string, string]) => {
