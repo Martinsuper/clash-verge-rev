@@ -23,7 +23,7 @@ const TQ_MIHOMO = {
   refetchOnReconnect: false,
   staleTime: 1500,
   retry: 3,
-  retryDelay: 2000,
+  retryDelay: (attempt: number) => Math.min(200 * 2 ** attempt, 3000),
 } as const
 
 const TQ_DEFAULTS = {
@@ -41,13 +41,21 @@ export const AppDataProvider = ({
 }) => {
   const { verge } = useVerge()
 
-  const { data: proxiesData, refetch: refreshProxy } = useQuery({
+  const {
+    data: proxiesData,
+    isPending: isProxiesPending,
+    refetch: refreshProxy,
+  } = useQuery({
     queryKey: ['getProxies'],
     queryFn: calcuProxies,
     ...TQ_MIHOMO,
   })
 
-  const { data: clashConfig, refetch: refreshClashConfig } = useQuery({
+  const {
+    data: clashConfig,
+    isPending: isClashConfigPending,
+    refetch: refreshClashConfig,
+  } = useQuery({
     queryKey: ['getClashConfig'],
     queryFn: getBaseConfig,
     ...TQ_MIHOMO,
@@ -323,6 +331,9 @@ export const AppDataProvider = ({
 
       systemProxyAddress: calculateSystemProxyAddress(),
 
+      // core 数据加载状态
+      isCoreDataPending: isProxiesPending || isClashConfigPending,
+
       // 刷新方法
       refreshProxy,
       refreshClashConfig,
@@ -335,6 +346,8 @@ export const AppDataProvider = ({
   }, [
     proxiesData,
     clashConfig,
+    isProxiesPending,
+    isClashConfigPending,
     rulesData,
     sysproxy,
     runningMode,

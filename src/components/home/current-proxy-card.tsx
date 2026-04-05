@@ -105,7 +105,8 @@ export const CurrentProxyCard = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const theme = useTheme()
-  const { proxies, clashConfig, refreshProxy, rules } = useAppData()
+  const { proxies, clashConfig, isCoreDataPending, refreshProxy, rules } =
+    useAppData()
   const { verge } = useVerge()
   const { current: currentProfile } = useProfiles()
   const autoDelayEnabled = verge?.enable_auto_delay_detection ?? false
@@ -911,7 +912,9 @@ export const CurrentProxyCard = () => {
         </Box>
       }
     >
-      {currentProxy ? (
+      {isCoreDataPending ? (
+        <Box sx={{ py: 4 }} />
+      ) : currentProxy ? (
         <Box>
           {/* 代理节点信息显示 */}
           <Box
