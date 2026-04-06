@@ -129,7 +129,7 @@ impl WindowManager {
                 logging!(info, Type::Window, "窗口不存在，创建新窗口");
                 if Self::create_window(true).await {
                     logging!(info, Type::Window, "窗口创建成功");
-                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                     WindowOperationResult::Created
                 } else {
                     logging!(warn, Type::Window, "窗口创建失败");
@@ -286,11 +286,11 @@ impl WindowManager {
 
     /// 创建新窗口,防抖避免重复调用
     /// 窗口创建后保持隐藏，由前端 index.html 在 overlay 渲染后调用 show，避免主题闪烁
-    pub fn create_window(is_show: bool) -> Pin<Box<dyn Future<Output = bool> + Send>> {
+    pub fn create_window(should_create: bool) -> Pin<Box<dyn Future<Output = bool> + Send>> {
         Box::pin(async move {
-            logging!(info, Type::Window, "开始创建/显示主窗口, is_show={}", is_show);
+            logging!(info, Type::Window, "开始创建主窗口, should_create={}", should_create);
 
-            if !is_show {
+            if !should_create {
                 return false;
             }
 

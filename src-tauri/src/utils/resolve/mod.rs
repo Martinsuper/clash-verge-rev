@@ -62,14 +62,9 @@ pub fn resolve_setup_async() {
             init_system_proxy_guard().await;
         });
 
-        let tray_init = async {
-            init_tray().await;
-            refresh_tray_menu().await;
-        };
-
         let _ = futures::join!(
             core_init,
-            tray_init,
+            init_tray(),
             init_timer(),
             init_hotkey(),
             init_auto_lightweight_boot(),
@@ -79,6 +74,7 @@ pub fn resolve_setup_async() {
 
         Handle::refresh_clash();
         refresh_tray_menu().await;
+        resolve_done();
     });
 }
 
@@ -219,8 +215,4 @@ pub fn resolve_done() {
 
 pub fn is_resolve_done() -> bool {
     RESOLVE_DONE.load(Ordering::Acquire)
-}
-
-pub fn reset_resolve_done() {
-    RESOLVE_DONE.store(false, Ordering::Release);
 }
