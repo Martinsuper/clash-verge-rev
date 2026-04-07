@@ -10,11 +10,7 @@ export default defineConfig({
   server: { port: 3000 },
   plugins: [
     svgr(),
-    react({
-      babel: {
-        plugins: ['babel-plugin-react-compiler'],
-      },
-    } as any),
+    react(),
     legacy({
       modernTargets: ['edge>=109', 'safari>=14'],
       renderLegacyChunks: false,
@@ -30,24 +26,6 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true,
     chunkSizeWarningLimit: 4000,
-    rollupOptions: {
-      output: {
-        manualChunks: (id) => {
-          if (id.includes('monaco-yaml')) return 'monaco-yaml'
-          if (
-            id.includes('node_modules/react/') ||
-            id.includes('node_modules/react-dom/')
-          )
-            return 'react'
-          if (id.includes('node_modules/react-router')) return 'router'
-          if (
-            id.includes('node_modules/i18next') ||
-            id.includes('node_modules/react-i18next')
-          )
-            return 'i18n'
-        },
-      },
-    },
   },
   resolve: {
     alias: {
@@ -57,14 +35,5 @@ export default defineConfig({
   },
   define: {
     OS_PLATFORM: `"${process.platform}"`,
-  },
-  optimizeDeps: {
-    include: [
-      'react',
-      'react-dom',
-      'react-router-dom',
-      'i18next',
-      'react-i18next',
-    ],
   },
 })
