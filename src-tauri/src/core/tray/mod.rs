@@ -25,7 +25,10 @@ use tauri::{
     AppHandle, Wry,
     menu::{CheckMenuItem, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
 };
+
 mod menu_def;
+#[cfg(target_os = "macos")]
+mod speed_task;
 use menu_def::{MenuIds, MenuTexts};
 
 // TODO: 是否需要将可变菜单抽离存储起来，后续直接更新对应菜单实例，无需重新创建菜单(待考虑)
@@ -45,6 +48,8 @@ enum IconKind {
 
 pub struct Tray {
     limiter: SystemLimiter,
+    #[cfg(target_os = "macos")]
+    speed_controller: speed_task::TraySpeedController,
 }
 
 impl TrayState {
@@ -113,6 +118,8 @@ impl Default for Tray {
     fn default() -> Self {
         Self {
             limiter: Limiter::new(Duration::from_millis(TRAY_CLICK_DEBOUNCE_MS), SystemClock),
+            #[cfg(target_os = "macos")]
+            speed_controller: speed_task::TraySpeedController::new(),
         }
     }
 }
@@ -325,6 +332,8 @@ impl Tray {
         let verge = Config::verge().await.data_arc();
         self.update_menu().await?;
         self.update_icon(&verge).await?;
+        #[cfg(target_os = "macos")]
+        self.update_speed_task(verge.enable_tray_speed.unwrap_or(false));
         self.update_tooltip().await?;
         Ok(())
     }
@@ -381,6 +390,12 @@ impl Tray {
             logging!(debug, Type::Tray, "tray click rate limited");
         }
         allow
+    }
+
+    /// 根据配置统一更新托盘速率采集任务状态（macOS）
+    #[cfg(target_os = "macos")]
+    pub fn update_speed_task(&self, enable_tray_speed: bool) {
+        self.speed_controller.update_task(enable_tray_speed);
     }
 }
 
