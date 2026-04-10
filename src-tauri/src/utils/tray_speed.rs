@@ -32,7 +32,7 @@ thread_local! {
     /// 托盘速率富文本属性字典（主线程缓存，避免每帧重建 ObjC 对象）。
     /// 仅在首次调用时初始化，后续复用同一实例。
     static TRAY_SPEED_ATTRS: Retained<NSDictionary<NSString, AnyObject>> = build_attributes();
-    static LAST_DISPLAY_STR: RefCell<String> = RefCell::new(String::new());
+    static LAST_DISPLAY_STR: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 /// 将上行/下行速率格式化为两行定宽文本

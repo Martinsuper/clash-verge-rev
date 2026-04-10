@@ -150,9 +150,8 @@ impl<T> MihomoWsEventStream<T> {
                 _ = &mut sleep => {
                     if self.last_valid_event_at.elapsed() >= stale_timeout {
                         return StreamConsumeState::Stale;
-                    } else {
-                        sleep.as_mut().reset(self.last_valid_event_at + stale_timeout);
                     }
+                    sleep.as_mut().reset(self.last_valid_event_at + stale_timeout);
                 }
             }
         }
