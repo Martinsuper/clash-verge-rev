@@ -1118,6 +1118,7 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.11.0",
  "boa_engine",
+ "bytes",
  "chrono",
  "clash-verge-draft",
  "clash-verge-i18n",
