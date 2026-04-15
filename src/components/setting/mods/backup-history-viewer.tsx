@@ -1,4 +1,4 @@
-import DeleteOutline from '@mui/icons-material/DeleteOutline'
+import DeleteOutlined from '@mui/icons-material/DeleteOutlined'
 import DownloadRounded from '@mui/icons-material/DownloadRounded'
 import RefreshRounded from '@mui/icons-material/RefreshRounded'
 import RestoreRounded from '@mui/icons-material/RestoreRounded'
@@ -282,8 +282,7 @@ export const BackupHistoryViewer = ({
         <Stack spacing={2}>
           <Stack
             direction="row"
-            alignItems="center"
-            justifyContent="space-between"
+            sx={{ alignItems: 'center', justifyContent: 'space-between' }}
           >
             <Tabs
               value={source}
@@ -345,9 +344,11 @@ export const BackupHistoryViewer = ({
                     secondary={
                       <Stack
                         direction="row"
-                        alignItems="center"
-                        justifyContent="space-between"
                         spacing={1.5}
+                        sx={{
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
                       >
                         <Typography variant="caption" color="text.secondary">
                           {`${row.platform} · ${row.display_time}`}
@@ -355,7 +356,7 @@ export const BackupHistoryViewer = ({
                         <Stack
                           direction="row"
                           spacing={0.5}
-                          alignItems="center"
+                          sx={{ alignItems: 'center' }}
                         >
                           {isLocal && (
                             <IconButton
@@ -371,7 +372,7 @@ export const BackupHistoryViewer = ({
                             disabled={isBusy}
                             onClick={() => handleDelete(row.filename)}
                           >
-                            <DeleteOutline fontSize="small" />
+                            <DeleteOutlined fontSize="small" />
                           </IconButton>
                           <IconButton
                             size="small"
@@ -393,8 +394,7 @@ export const BackupHistoryViewer = ({
             <Stack
               direction="row"
               spacing={1}
-              justifyContent="flex-end"
-              alignItems="center"
+              sx={{ justifyContent: 'flex-end', alignItems: 'center' }}
             >
               <Typography variant="caption">
                 {currentPage + 1} / {pageCount}
