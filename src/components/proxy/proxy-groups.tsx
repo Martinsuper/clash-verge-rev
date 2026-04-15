@@ -9,6 +9,7 @@ import {
   Snackbar,
   Typography,
 } from '@mui/material'
+import { useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useLockFn } from 'ahooks'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -19,7 +20,7 @@ import { BaseEmpty } from '@/components/base'
 import { useProxySelection } from '@/hooks/use-proxy-selection'
 import { useVerge } from '@/hooks/use-verge'
 import { useAppData } from '@/providers/app-data-context'
-import { updateProxyChainConfigInRuntime } from '@/services/cmds'
+import { calcuProxies, updateProxyChainConfigInRuntime } from '@/services/cmds'
 import delayManager from '@/services/delay'
 import { debugLog } from '@/utils/debug'
 
@@ -49,6 +50,17 @@ interface ProxyChainItem {
 export const ProxyGroups = (props: Props) => {
   const { t } = useTranslation()
   const { mode, isChainMode = false, chainConfigData } = props
+
+  useQuery({
+    queryKey: ['getProxies'],
+    queryFn: calcuProxies,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: false,
+    staleTime: 1500,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+
   const [proxyChain, setProxyChain] = useState<ProxyChainItem[]>(() => {
     try {
       const saved = localStorage.getItem('proxy-chain-items')
