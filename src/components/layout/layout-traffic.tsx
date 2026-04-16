@@ -131,6 +131,7 @@ export const LayoutTraffic = () => {
               title={`${t('home.components.traffic.metrics.memoryUsage')} `}
               {...boxStyle}
               sx={{
+                ...boxStyle.sx,
                 cursor: 'auto',
                 // opacity: memory?.is_fresh ? 1 : 0.6,
               }}
