@@ -226,6 +226,7 @@ export interface TranslationResources {
           home: string
           openFile: string
           select: string
+          shareQrCode: string
           update: string
           updateViaProxy: string
         }
@@ -335,6 +336,9 @@ export interface TranslationResources {
           placeholders: {
             multiUri: string
           }
+          title: string
+        }
+        qrViewer: {
           title: string
         }
       }
