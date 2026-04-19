@@ -156,6 +156,9 @@ export const SysproxyViewer = forwardRef<DialogRef>((props, ref) => {
     }
 
     prevMixedPortRef.current = mixedPort
+    if (!enabled) {
+      return
+    }
 
     const updateProxy = async () => {
       try {
@@ -174,7 +177,7 @@ export const SysproxyViewer = forwardRef<DialogRef>((props, ref) => {
     }
 
     updateProxy()
-  }, [clashConfig?.mixedPort, value.pac, invalidateProxyState])
+  }, [clashConfig?.mixedPort, enabled, value.pac, invalidateProxyState])
 
   const { systemProxyAddress } = useAppData()
 
