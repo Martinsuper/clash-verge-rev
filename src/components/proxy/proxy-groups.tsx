@@ -34,6 +34,12 @@ import {
 import { ProxyRender } from './proxy-render'
 import { useRenderList } from './use-render-list'
 
+function useStableCallback<T extends (...args: any[]) => any>(fn: T): T {
+  const ref = useRef(fn)
+  ref.current = fn
+  return useCallback((...args: Parameters<T>) => ref.current(...args), []) as T
+}
+
 interface Props {
   mode: string
   isChainMode?: boolean
@@ -51,6 +57,7 @@ export const ProxyGroups = (props: Props) => {
   const { t } = useTranslation()
   const { mode, isChainMode = false, chainConfigData } = props
 
+  // Drive 3s polling on the shared TQ cache; data is read via useAppData() below
   useQuery({
     queryKey: ['getProxies'],
     queryFn: calcuProxies,
@@ -313,60 +320,64 @@ export const ProxyGroups = (props: Props) => {
   )
 
   // 测全部延迟
-  const handleCheckAll = useLockFn(async (groupName: string) => {
-    debugLog(`[ProxyGroups] 开始测试所有延迟，组: ${groupName}`)
+  const handleCheckAll = useStableCallback(
+    useLockFn(async (groupName: string) => {
+      debugLog(`[ProxyGroups] 开始测试所有延迟，组: ${groupName}`)
 
-    const proxies = renderList
-      .filter(
-        (e) => e.group?.name === groupName && (e.type === 2 || e.type === 4),
+      const proxies = renderList
+        .filter(
+          (e) => e.group?.name === groupName && (e.type === 2 || e.type === 4),
+        )
+        .flatMap((e) => e.proxyCol || e.proxy!)
+        .filter(Boolean)
+
+      debugLog(`[ProxyGroups] 找到代理数量: ${proxies.length}`)
+
+      const providers = new Set(
+        proxies.map((p) => p!.provider!).filter(Boolean),
       )
-      .flatMap((e) => e.proxyCol || e.proxy!)
-      .filter(Boolean)
 
-    debugLog(`[ProxyGroups] 找到代理数量: ${proxies.length}`)
-
-    const providers = new Set(proxies.map((p) => p!.provider!).filter(Boolean))
-
-    if (providers.size) {
-      debugLog(`[ProxyGroups] 发现提供者，数量: ${providers.size}`)
-      Promise.allSettled(
-        [...providers].map((p) => healthcheckProxyProvider(p)),
-      ).then(() => {
-        debugLog(`[ProxyGroups] 提供者健康检查完成`)
-        onProxies()
-      })
-    }
-
-    const names = proxies.filter((p) => !p!.provider).map((p) => p!.name)
-    debugLog(`[ProxyGroups] 过滤后需要测试的代理数量: ${names.length}`)
-
-    const url = delayManager.getUrl(groupName)
-    debugLog(`[ProxyGroups] 测试URL: ${url}, 超时: ${timeout}ms`)
-
-    try {
-      await Promise.race([
-        delayManager.checkListDelay(names, groupName, timeout),
-        delayGroup(groupName, url, timeout).then((result) => {
-          debugLog(
-            `[ProxyGroups] getGroupProxyDelays返回结果数量:`,
-            Object.keys(result || {}).length,
-          )
-        }), // 查询group delays 将清除fixed(不关注调用结果)
-      ])
-      debugLog(`[ProxyGroups] 延迟测试完成，组: ${groupName}`)
-    } catch (error) {
-      console.error(`[ProxyGroups] 延迟测试出错，组: ${groupName}`, error)
-    } finally {
-      const headState = getGroupHeadState(groupName)
-      if (headState?.sortType === 1) {
-        onHeadState(groupName, { sortType: headState.sortType })
+      if (providers.size) {
+        debugLog(`[ProxyGroups] 发现提供者，数量: ${providers.size}`)
+        Promise.allSettled(
+          [...providers].map((p) => healthcheckProxyProvider(p)),
+        ).then(() => {
+          debugLog(`[ProxyGroups] 提供者健康检查完成`)
+          onProxies()
+        })
       }
-      onProxies()
-    }
-  })
+
+      const names = proxies.filter((p) => !p!.provider).map((p) => p!.name)
+      debugLog(`[ProxyGroups] 过滤后需要测试的代理数量: ${names.length}`)
+
+      const url = delayManager.getUrl(groupName)
+      debugLog(`[ProxyGroups] 测试URL: ${url}, 超时: ${timeout}ms`)
+
+      try {
+        await Promise.race([
+          delayManager.checkListDelay(names, groupName, timeout),
+          delayGroup(groupName, url, timeout).then((result) => {
+            debugLog(
+              `[ProxyGroups] getGroupProxyDelays返回结果数量:`,
+              Object.keys(result || {}).length,
+            )
+          }), // 查询group delays 将清除fixed(不关注调用结果)
+        ])
+        debugLog(`[ProxyGroups] 延迟测试完成，组: ${groupName}`)
+      } catch (error) {
+        console.error(`[ProxyGroups] 延迟测试出错，组: ${groupName}`, error)
+      } finally {
+        const headState = getGroupHeadState(groupName)
+        if (headState?.sortType === 1) {
+          onHeadState(groupName, { sortType: headState.sortType })
+        }
+        onProxies()
+      }
+    }),
+  )
 
   // 滚到对应的节点
-  const handleLocation = (group: IProxyGroupItem) => {
+  const handleLocation = useStableCallback((group: IProxyGroupItem) => {
     if (!group) return
     const { name, now } = group
 
@@ -380,7 +391,7 @@ export const ProxyGroups = (props: Props) => {
     if (index >= 0) {
       virtualizer.scrollToIndex(index, { align: 'center', behavior: 'smooth' })
     }
-  }
+  })
 
   // 定位到指定的代理组
   const handleGroupLocationByName = useCallback(

@@ -121,6 +121,9 @@ export const EnhancedCanvasTrafficGraph = memo(
     const initialFocusState =
       typeof document !== 'undefined' ? !document.hidden : true
     const [isWindowFocused, setIsWindowFocused] = useState(initialFocusState)
+    const [isDocumentVisible, setIsDocumentVisible] =
+      useState(initialFocusState)
+    const isDocumentVisibleRef = useRef(initialFocusState)
 
     // 悬浮提示状态
     const [tooltipData, setTooltipData] = useState<TooltipData>({
@@ -246,7 +249,7 @@ export const EnhancedCanvasTrafficGraph = memo(
           resumeCooldownRef.current = 0
         }
       },
-      [setIsWindowFocused, setCurrentFPS, pause_render_traffic_stats_on_blur],
+      [pause_render_traffic_stats_on_blur],
     )
 
     useEffect(() => {
@@ -256,8 +259,12 @@ export const EnhancedCanvasTrafficGraph = memo(
 
       const handleFocus = () => handleFocusStateChange(true)
       const handleBlur = () => handleFocusStateChange(false)
-      const handleVisibilityChange = () =>
-        handleFocusStateChange(!document.hidden)
+      const handleVisibilityChange = () => {
+        const visible = !document.hidden
+        isDocumentVisibleRef.current = visible
+        setIsDocumentVisible(visible)
+        handleFocusStateChange(visible)
+      }
 
       window.addEventListener('focus', handleFocus)
       window.addEventListener('blur', handleBlur)
@@ -270,43 +277,54 @@ export const EnhancedCanvasTrafficGraph = memo(
       }
     }, [handleFocusStateChange])
 
-    // Y轴坐标计算 - 基于刻度范围的线性映射
+    // Y轴坐标计算 - 线性映射
     const calculateY = useCallback(
-      (value: number, height: number, data: ITrafficDataPoint[]): number => {
+      (
+        value: number,
+        height: number,
+        topValue: number,
+        bottomValue: number,
+      ): number => {
         const padding = GRAPH_CONFIG.padding
-        const topY = padding.top + 10 // 与刻度系统保持一致
+        const topY = padding.top + 10
         const bottomY = height - padding.bottom - 5
 
-        if (data.length === 0) return bottomY
-
-        // 获取当前的刻度范围
-        const allValues = [...data.map((d) => d.up), ...data.map((d) => d.down)]
-        const maxValue = Math.max(...allValues)
-        const minValue = Math.min(...allValues)
-
-        let topValue, bottomValue
-
-        if (maxValue === 0) {
-          topValue = 1024
-          bottomValue = 0
-        } else {
-          const range = maxValue - minValue
-          const padding_percent = range > 0 ? 0.1 : 0.5
-
-          if (range === 0) {
-            bottomValue = 0
-            topValue = maxValue * 1.2
-          } else {
-            bottomValue = Math.max(0, minValue - range * padding_percent)
-            topValue = maxValue + range * padding_percent
-          }
-        }
-
-        // 线性映射到Y坐标
         if (topValue === bottomValue) return bottomY
 
         const ratio = (value - bottomValue) / (topValue - bottomValue)
         return bottomY - ratio * (bottomY - topY)
+      },
+      [],
+    )
+
+    const computeYScale = useCallback(
+      (
+        data: ITrafficDataPoint[],
+      ): { topValue: number; bottomValue: number } => {
+        if (data.length === 0) return { topValue: 1024, bottomValue: 0 }
+
+        let maxValue = 0
+        let minValue = Infinity
+        for (let i = 0; i < data.length; i++) {
+          const up = data[i].up
+          const down = data[i].down
+          if (up > maxValue) maxValue = up
+          if (down > maxValue) maxValue = down
+          if (up < minValue) minValue = up
+          if (down < minValue) minValue = down
+        }
+        if (!isFinite(minValue)) minValue = 0
+
+        if (maxValue === 0) return { topValue: 1024, bottomValue: 0 }
+
+        const range = maxValue - minValue
+        if (range === 0) return { topValue: maxValue * 1.2, bottomValue: 0 }
+
+        const pct = 0.1
+        return {
+          topValue: maxValue + range * pct,
+          bottomValue: Math.max(0, minValue - range * pct),
+        }
       },
       [],
     )
@@ -346,8 +364,9 @@ export const EnhancedCanvasTrafficGraph = memo(
             : '未知时间'
 
           // 计算数据点对应的Y坐标位置（用于高亮）
-          const upY = calculateY(dataPoint.up, rect.height, displayData)
-          const downY = calculateY(dataPoint.down, rect.height, displayData)
+          const { topValue: tvH, bottomValue: bvH } = computeYScale(displayData)
+          const upY = calculateY(dataPoint.up, rect.height, tvH, bvH)
+          const downY = calculateY(dataPoint.down, rect.height, tvH, bvH)
           const highlightY =
             Math.max(dataPoint.up, dataPoint.down) === dataPoint.up
               ? upY
@@ -365,7 +384,7 @@ export const EnhancedCanvasTrafficGraph = memo(
           })
         }
       },
-      [displayData, calculateY],
+      [displayData, calculateY, computeYScale],
     )
 
     // 鼠标离开处理
@@ -375,14 +394,7 @@ export const EnhancedCanvasTrafficGraph = memo(
 
     // 获取智能Y轴刻度（三刻度系统：最小值、中间值、最大值）
     const getYAxisTicks = useCallback(
-      (data: ITrafficDataPoint[], height: number) => {
-        if (data.length === 0) return []
-
-        // 找到数据的最大值和最小值
-        const allValues = [...data.map((d) => d.up), ...data.map((d) => d.down)]
-        const maxValue = Math.max(...allValues)
-        const minValue = Math.min(...allValues)
-
+      (topValue: number, bottomValue: number, height: number) => {
         // 格式化流量数值
         const formatTrafficValue = (bytes: number): string => {
           if (bytes === 0) return '0'
@@ -397,32 +409,7 @@ export const EnhancedCanvasTrafficGraph = memo(
         const topY = padding.top + 10 // 避免与顶部时间范围按钮重叠
         const bottomY = height - padding.bottom - 5 // 避免与底部时间轴重叠
         const middleY = (topY + bottomY) / 2
-
-        // 计算对应的值
-        let topValue, middleValue, bottomValue
-
-        if (maxValue === 0) {
-          // 如果没有流量，显示0到一个小值的范围
-          topValue = 1024 // 1KB
-          middleValue = 512 // 512B
-          bottomValue = 0
-        } else {
-          // 根据数据范围计算合适的刻度值
-          const range = maxValue - minValue
-          const padding_percent = range > 0 ? 0.1 : 0.5 // 如果范围为0，使用更大的边距
-
-          if (range === 0) {
-            // 所有值相同的情况
-            bottomValue = 0
-            middleValue = maxValue * 0.5
-            topValue = maxValue * 1.2
-          } else {
-            // 正常情况
-            bottomValue = Math.max(0, minValue - range * padding_percent)
-            topValue = maxValue + range * padding_percent
-            middleValue = (bottomValue + topValue) / 2
-          }
-        }
+        const middleValue = (bottomValue + topValue) / 2
 
         // 创建三个固定位置的刻度
         const ticks = [
@@ -454,10 +441,11 @@ export const EnhancedCanvasTrafficGraph = memo(
         ctx: CanvasRenderingContext2D,
         width: number,
         height: number,
-        data: ITrafficDataPoint[],
+        topValue: number,
+        bottomValue: number,
       ) => {
         const padding = GRAPH_CONFIG.padding
-        const ticks = getYAxisTicks(data, height)
+        const ticks = getYAxisTicks(topValue, bottomValue, height)
 
         if (ticks.length === 0) return
 
@@ -706,7 +694,8 @@ export const EnhancedCanvasTrafficGraph = memo(
         height: number,
         color: string,
         withGradient = false,
-        data: ITrafficDataPoint[],
+        topValue: number,
+        bottomValue: number,
       ) => {
         if (values.length < 2) return
 
@@ -715,7 +704,7 @@ export const EnhancedCanvasTrafficGraph = memo(
 
         const points = values.map((value, index) => [
           padding.left + (index / (values.length - 1)) * effectiveWidth,
-          calculateY(value, height, data),
+          calculateY(value, height, topValue, bottomValue),
         ])
 
         ctx.save()
@@ -827,8 +816,10 @@ export const EnhancedCanvasTrafficGraph = memo(
       // Clear using CSS dimensions; context is already scaled by DPR.
       ctx.clearRect(0, 0, cssWidth, cssHeight)
 
+      const { topValue, bottomValue } = computeYScale(displayData)
+
       // 绘制Y轴刻度线（背景层）
-      drawYAxis(ctx, cssWidth, cssHeight, displayData)
+      drawYAxis(ctx, cssWidth, cssHeight, topValue, bottomValue)
 
       // 绘制网格
       drawGrid(ctx, cssWidth, cssHeight)
@@ -848,7 +839,8 @@ export const EnhancedCanvasTrafficGraph = memo(
         cssHeight,
         colors.down,
         true,
-        displayData,
+        topValue,
+        bottomValue,
       )
 
       // 绘制上传线（前景层）
@@ -859,7 +851,8 @@ export const EnhancedCanvasTrafficGraph = memo(
         cssHeight,
         colors.up,
         true,
-        displayData,
+        topValue,
+        bottomValue,
       )
 
       // 绘制悬浮高亮线
@@ -895,6 +888,7 @@ export const EnhancedCanvasTrafficGraph = memo(
     }, [
       displayData,
       colors,
+      computeYScale,
       drawYAxis,
       drawGrid,
       drawTimeAxis,
@@ -989,6 +983,7 @@ export const EnhancedCanvasTrafficGraph = memo(
     // 受控的动画循环
     useEffect(() => {
       if (
+        !isDocumentVisible ||
         (!isWindowFocused && pause_render_traffic_stats_on_blur) ||
         displayData.length === 0 ||
         dataStaleRef.current
@@ -1002,6 +997,14 @@ export const EnhancedCanvasTrafficGraph = memo(
       }
 
       const animate = (currentTime: number) => {
+        if (!isDocumentVisibleRef.current) {
+          if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current)
+            animationFrameRef.current = undefined
+          }
+          lastRenderTimeRef.current = getNow()
+          return
+        }
         if (!isWindowFocusedRef.current && pause_render_traffic_stats_on_blur) {
           lastRenderTimeRef.current = getNow()
           animationFrameRef.current = undefined
@@ -1053,6 +1056,7 @@ export const EnhancedCanvasTrafficGraph = memo(
     }, [
       drawGraph,
       displayData.length,
+      isDocumentVisible,
       isWindowFocused,
       pause_render_traffic_stats_on_blur,
       collectFrameSample,
