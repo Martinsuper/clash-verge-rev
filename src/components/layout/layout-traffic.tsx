@@ -4,6 +4,7 @@ import {
   MemoryRounded,
 } from '@mui/icons-material'
 import { Box, Typography } from '@mui/material'
+import type { BoxProps, SvgIconProps, TypographyProps } from '@mui/material'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -52,21 +53,21 @@ export const LayoutTraffic = () => {
   const [down, downUnit] = parseTraffic(traffic?.down || 0)
   const [inuse, inuseUnit] = parseTraffic(memory?.inuse || 0)
 
-  const boxStyle: any = {
+  const boxStyle: Pick<BoxProps, 'sx'> = {
     sx: {
       display: 'flex',
       alignItems: 'center',
       whiteSpace: 'nowrap',
     },
   }
-  const iconStyle: any = {
+  const iconStyle: Pick<SvgIconProps, 'sx'> = {
     sx: { mr: '8px', fontSize: 16 },
   }
-  const valStyle: any = {
+  const valStyle: Pick<TypographyProps, 'component' | 'sx'> = {
     component: 'span',
     sx: { flex: '1 1 56px', userSelect: 'none', textAlign: 'center' },
   }
-  const unitStyle: any = {
+  const unitStyle: Pick<TypographyProps, 'component' | 'color' | 'sx'> = {
     component: 'span',
     color: 'grey.500',
     sx: {

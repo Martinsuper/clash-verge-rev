@@ -71,18 +71,18 @@ const LogPage = () => {
     }
   }, [filteredLogs.length, isDescending])
 
-  const handleLogLevelChange = (newLevel: string) => {
-    setClashLog((pre: any) => ({ ...pre, logFilter: newLevel }))
+  const handleLogLevelChange = (newLevel: LogFilter) => {
+    setClashLog((pre) => ({ ...pre!, logFilter: newLevel }))
   }
 
   const handleToggleLog = async () => {
-    setClashLog((pre: any) => ({ ...pre, enable: !enableLog }))
+    setClashLog((pre) => ({ ...pre!, enable: !enableLog }))
   }
 
   const handleToggleOrder = () => {
-    setClashLog((pre: any) => ({
-      ...pre,
-      logOrder: pre.logOrder === 'desc' ? 'asc' : 'desc',
+    setClashLog((pre) => ({
+      ...pre!,
+      logOrder: pre!.logOrder === 'desc' ? 'asc' : 'desc',
     }))
   }
 

@@ -1,7 +1,7 @@
 import { LanOutlined, LanRounded } from '@mui/icons-material'
 import { Box, Button, ButtonGroup } from '@mui/material'
 import { useLockFn } from 'ahooks'
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
+import { useCallback, useEffect, useReducer, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { closeAllConnections } from 'tauri-plugin-mihomo-api'
 
@@ -47,8 +47,6 @@ const ProxyPage = () => {
     dispatchChainConfigData(value)
   }, [])
   const { verge } = useVerge()
-
-  const modeList = useMemo(() => MODES, [])
 
   const normalizedMode = clashConfig?.mode?.toLowerCase()
   const curMode = isMode(normalizedMode) ? normalizedMode : undefined
@@ -141,7 +139,7 @@ const ProxyPage = () => {
           <ProviderButton />
 
           <ButtonGroup size="small">
-            {modeList.map((mode) => (
+            {MODES.map((mode) => (
               <Button
                 key={mode}
                 variant={mode === curMode ? 'contained' : 'outlined'}
