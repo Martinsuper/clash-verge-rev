@@ -106,6 +106,14 @@ impl Sysopt {
         }
     }
 
+    /// Wait for any in-progress `update_sysproxy` to finish, so that a
+    /// subsequent read of OS-level sysproxy state sees a fully applied
+    /// configuration instead of a partially-applied one (e.g. SOCKS already
+    /// disabled but HTTP still enabled mid-transition).
+    pub async fn wait_idle(&self) {
+        let _ = self.update_lock.lock().await;
+    }
+
     /// init the sysproxy
     pub async fn update_sysproxy(&self) -> Result<()> {
         let _lock = self.update_lock.lock().await;
