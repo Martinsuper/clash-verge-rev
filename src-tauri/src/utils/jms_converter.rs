@@ -626,8 +626,201 @@ pub fn parse_vless(line: &str) -> Result<HashMap<String, String>> {
     Ok(result)
 }
 
+/// Parse host:port from a string
+/// Returns (host, port) or error if parsing fails
+fn parse_host_port(host_port: &str) -> Result<(String, u16)> {
+    if let Some(pos) = host_port.rfind(':') {
+        let port_str = &host_port[pos + 1..];
+        let port: u16 = port_str
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid port: {}", port_str))?;
+        Ok((host_port[..pos].to_string(), port))
+    } else {
+        bail!("Invalid host:port format: missing port");
+    }
+}
+
+/// Parse Hysteria URL
+/// Format: hysteria://host:port?params#name
+/// Params: auth, obfs, up/upmbps, down/downmbps, alpn, sni
+pub fn parse_hysteria(line: &str) -> Result<HashMap<String, String>> {
+    use url::Url;
+
+    let mut result = HashMap::new();
+    result.insert("type".to_string(), "hysteria".to_string());
+
+    let line = line.trim();
+
+    // Extract scheme
+    if !line.starts_with("hysteria://") {
+        bail!("Invalid scheme for Hysteria: must start with hysteria://");
+    }
+
+    // Parse using url crate
+    let url_str = format!("hysteria://{}", &line[10..]); // Re-add scheme for parsing
+    let url = Url::parse(&url_str)?;
+
+    // Extract server and port
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("Hysteria URL missing host"))?;
+    let port = url.port().unwrap_or(443);
+
+    result.insert("server".to_string(), host.to_string());
+    result.insert("port".to_string(), port.to_string());
+
+    // Extract name from fragment
+    if let Some(name) = url.fragment() {
+        result.insert("name".to_string(), urlencoding_decode(name));
+    }
+
+    // Parse query parameters
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "auth" => {
+                result.insert("auth_str".to_string(), value.to_string());
+            }
+            "obfs" => {
+                result.insert("obfs".to_string(), value.to_string());
+            }
+            "up" => {
+                result.insert("up".to_string(), value.to_string());
+            }
+            "down" => {
+                result.insert("down".to_string(), value.to_string());
+            }
+            "upmbps" => {
+                result.insert("up_mbps".to_string(), value.to_string());
+            }
+            "downmbps" => {
+                result.insert("down_mbps".to_string(), value.to_string());
+            }
+            "alpn" => {
+                result.insert("alpn".to_string(), value.to_string());
+            }
+            "sni" => {
+                result.insert("sni".to_string(), value.to_string());
+            }
+            _ => {}
+        }
+    }
+
+    Ok(result)
+}
+
 pub fn convert_jms_to_clash(_data: &str) -> Result<String> {
     bail!("not implemented")
+}
+
+/// Parse SSR (ShadowsocksR) URL
+/// Format: ssr://base64(server:port:protocol:method:obfs:password_base64/?params)
+/// Params: remarks (name, base64 encoded), obfsparam, protoparam, group
+pub fn parse_ssr(line: &str) -> Result<HashMap<String, String>> {
+    let mut result = HashMap::new();
+    result.insert("type".to_string(), "ssr".to_string());
+
+    let line = line.trim();
+
+    // Extract scheme
+    if !line.starts_with("ssr://") {
+        bail!("Invalid scheme for SSR: must start with ssr://");
+    }
+
+    // Get the base64-encoded part after ssr:// (ssr:// = 6 characters)
+    let encoded = &line[6..];
+
+    // Decode base64
+    let decoded_bytes = BASE64.decode(encoded)?;
+    let decoded_str = String::from_utf8(decoded_bytes)?;
+
+    // Find the position of /? to separate the main part from query params
+    let (main_part, query_part) = if let Some(pos) = decoded_str.find("/?") {
+        (&decoded_str[..pos], Some(&decoded_str[pos + 2..]))
+    } else {
+        // Try just / without ?
+        if let Some(pos) = decoded_str.find('/') {
+            (&decoded_str[..pos], Some(&decoded_str[pos + 1..]))
+        } else {
+            (decoded_str.as_str(), None)
+        }
+    };
+
+    // Parse main part: server:port:protocol:method:obfs:password_base64
+    let parts: Vec<&str> = main_part.split(':').collect();
+    if parts.len() < 6 {
+        bail!("Invalid SSR URL: not enough parts (expected at least 6)");
+    }
+
+    let server = parts[0].to_string();
+    let port: u16 = parts[1]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid port: {}", parts[1]))?;
+    let protocol = parts[2].to_string();
+    let method = parts[3].to_string();
+    let obfs = parts[4].to_string();
+    let password_base64 = parts[5];
+
+    // Decode password from base64
+    let password_bytes = BASE64.decode(password_base64)?;
+    let password = String::from_utf8(password_bytes)?;
+
+    // Fill in basic fields
+    result.insert("server".to_string(), server);
+    result.insert("port".to_string(), port.to_string());
+    result.insert("cipher".to_string(), method);
+    result.insert("password".to_string(), password);
+
+    // Additional SSR fields
+    result.insert("protocol".to_string(), protocol);
+    result.insert("obfs".to_string(), obfs);
+
+    // Parse query parameters
+    if let Some(query) = query_part {
+        for param in query.split('&') {
+            if let Some((key, value)) = param.split_once('=') {
+                match key {
+                    "remarks" => {
+                        // Remarks are base64 encoded
+                        if let Ok(decoded) = BASE64.decode(value) {
+                            if let Ok(name) = String::from_utf8(decoded) {
+                                result.insert("name".to_string(), name);
+                            }
+                        }
+                    }
+                    "obfsparam" => {
+                        if !value.is_empty() {
+                            if let Ok(decoded) = BASE64.decode(value) {
+                                if let Ok(s) = String::from_utf8(decoded) {
+                                    result.insert("obfs-param".to_string(), s);
+                                }
+                            }
+                        }
+                    }
+                    "protoparam" => {
+                        if !value.is_empty() {
+                            if let Ok(decoded) = BASE64.decode(value) {
+                                if let Ok(s) = String::from_utf8(decoded) {
+                                    result.insert("protocol-param".to_string(), s);
+                                }
+                            }
+                        }
+                    }
+                    "group" => {
+                        if !value.is_empty() {
+                            if let Ok(decoded) = BASE64.decode(value) {
+                                if let Ok(s) = String::from_utf8(decoded) {
+                                    result.insert("group".to_string(), s);
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -769,6 +962,25 @@ mod tests {
         let result = parse_vless(line).unwrap();
         assert_eq!(result["flow"], "xtls-rprx-vision");
         assert_eq!(result["tls"], "true");
+    }
+
+    #[test]
+    fn test_parse_ssr_basic() {
+        // SSR format: ssr://base64(server:port:protocol:method:obfs:password_base64/?params#name)
+        let inner = "1.2.3.4:443:origin:aes-128-cfb:plain:YmFzZTY0cGFzc3dvcmQ=/?obfsparam=&protoparam=&remarks=VGVzdFNTUg==&group=";
+        let encoded = base64_encode(inner);
+        let line = format!("ssr://{}", encoded);
+        let result = parse_ssr(&line).unwrap();
+        assert_eq!(result["name"], "TestSSR");
+        assert_eq!(result["type"], "ssr");
+        assert_eq!(result["server"], "1.2.3.4");
+        assert_eq!(result["port"], "443");
+        assert_eq!(result["cipher"], "aes-128-cfb");
+    }
+
+    fn base64_encode(s: &str) -> String {
+        use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+        BASE64.encode(s.as_bytes())
     }
 
     #[test]
