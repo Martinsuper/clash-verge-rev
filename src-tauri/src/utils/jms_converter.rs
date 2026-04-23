@@ -375,7 +375,6 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
     Ok(result)
 }
 
-/// Convert JMS subscription data to Clash YAML
 /// Parse Trojan URL
 /// Format: trojan://password@host:port?params#name
 pub fn parse_trojan(line: &str) -> Result<HashMap<String, String>> {
@@ -403,7 +402,9 @@ pub fn parse_trojan(line: &str) -> Result<HashMap<String, String>> {
     result.insert("password".to_string(), urlencoding_decode(password));
 
     // Extract server and port
-    let host = url.host_str().ok_or_else(|| anyhow::anyhow!("Trojan URL missing host"))?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("Trojan URL missing host"))?;
     let port = url.port().unwrap_or(443);
 
     result.insert("server".to_string(), host.to_string());
@@ -423,20 +424,18 @@ pub fn parse_trojan(line: &str) -> Result<HashMap<String, String>> {
             "sni" => {
                 result.insert("sni".to_string(), value.to_string());
             }
-            "type" => {
-                match value.as_ref() {
-                    "ws" => {
-                        result.insert("network".to_string(), "ws".to_string());
-                    }
-                    "grpc" => {
-                        result.insert("network".to_string(), "grpc".to_string());
-                    }
-                    "h2" | "http" => {
-                        result.insert("network".to_string(), "h2".to_string());
-                    }
-                    _ => {}
+            "type" => match value.as_ref() {
+                "ws" => {
+                    result.insert("network".to_string(), "ws".to_string());
                 }
-            }
+                "grpc" => {
+                    result.insert("network".to_string(), "grpc".to_string());
+                }
+                "h2" | "http" => {
+                    result.insert("network".to_string(), "h2".to_string());
+                }
+                _ => {}
+            },
             "host" => {
                 // Could be ws host or sni
                 // Store in ws-opts if network is ws
@@ -479,6 +478,154 @@ pub fn parse_trojan(line: &str) -> Result<HashMap<String, String>> {
 
     Ok(result)
 }
+
+/// Parse VLESS URL
+/// Format: vless://uuid@host:port?params#name
+pub fn parse_vless(line: &str) -> Result<HashMap<String, String>> {
+    use url::Url;
+
+    let mut result = HashMap::new();
+    result.insert("type".to_string(), "vless".to_string());
+
+    let line = line.trim();
+
+    // Extract scheme
+    if !line.starts_with("vless://") {
+        bail!("Invalid scheme for VLESS: must start with vless://");
+    }
+
+    // Parse using url crate
+    let url_str = format!("vless://{}", &line[8..]); // Re-add scheme for parsing
+    let url = Url::parse(&url_str)?;
+
+    let uuid = url.username();
+    // Extract UUID (username in URL terms)
+    if uuid.is_empty() {
+        bail!("VLESS URL missing UUID");
+    }
+    result.insert("uuid".to_string(), urlencoding_decode(uuid));
+
+    // Extract server and port
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("VLESS URL missing host"))?;
+    let port = url.port().unwrap_or(443);
+
+    result.insert("server".to_string(), host.to_string());
+    result.insert("port".to_string(), port.to_string());
+
+    // Extract name from fragment
+    if let Some(name) = url.fragment() {
+        result.insert("name".to_string(), urlencoding_decode(name));
+    }
+
+    // Parse query parameters
+    let mut has_tls = false;
+    let mut has_reality = false;
+
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "encryption" => {
+                // Usually "none" for VLESS
+            }
+            "flow" => {
+                result.insert("flow".to_string(), value.to_string());
+            }
+            "security" => match value.as_ref() {
+                "tls" => {
+                    has_tls = true;
+                    result.insert("tls".to_string(), "true".to_string());
+                }
+                "reality" => {
+                    has_reality = true;
+                    result.insert("tls".to_string(), "true".to_string());
+                }
+                _ => {}
+            },
+            "sni" => {
+                result.insert("sni".to_string(), value.to_string());
+            }
+            "fp" | "fingerprint" => {
+                result.insert("fingerprint".to_string(), value.to_string());
+            }
+            "type" => match value.as_ref() {
+                "ws" => {
+                    result.insert("network".to_string(), "ws".to_string());
+                }
+                "grpc" => {
+                    result.insert("network".to_string(), "grpc".to_string());
+                }
+                "h2" | "http" => {
+                    result.insert("network".to_string(), "h2".to_string());
+                }
+                _ => {}
+            },
+            "host" => {
+                // Could be ws host or sni
+                if result.get("network").map(|s| s.as_str()) == Some("ws") {
+                    let mut ws_opts = HashMap::new();
+                    ws_opts.insert("Host".to_string(), value.to_string());
+                    // Check for path too
+                    if let Some(path) = url.query_pairs().find(|(k, _)| k == "path") {
+                        ws_opts.insert("Path".to_string(), path.1.to_string());
+                    }
+                    result.insert("ws-opts".to_string(), serde_json::to_string(&ws_opts)?);
+                } else if !has_tls && !has_reality {
+                    // Only use as SNI if no TLS
+                    result.insert("sni".to_string(), value.to_string());
+                }
+            }
+            "path" => {
+                // Add path to appropriate opts based on network
+                if result.get("network").map(|s| s.as_str()) == Some("ws") {
+                    if let Some(ws_opts_str) = result.get("ws-opts") {
+                        let mut ws_opts: HashMap<String, String> = serde_json::from_str(ws_opts_str)?;
+                        ws_opts.insert("Path".to_string(), value.to_string());
+                        result.insert("ws-opts".to_string(), serde_json::to_string(&ws_opts)?);
+                    } else {
+                        let mut ws_opts = HashMap::new();
+                        ws_opts.insert("Path".to_string(), value.to_string());
+                        result.insert("ws-opts".to_string(), serde_json::to_string(&ws_opts)?);
+                    }
+                } else if result.get("network").map(|s| s.as_str()) == Some("h2") {
+                    let mut h2_opts = HashMap::new();
+                    h2_opts.insert("Path".to_string(), value.to_string());
+                    result.insert("h2-opts".to_string(), serde_json::to_string(&h2_opts)?);
+                } else if result.get("network").map(|s| s.as_str()) == Some("grpc") {
+                    let mut grpc_opts = HashMap::new();
+                    grpc_opts.insert("grpc-service-name".to_string(), value.to_string());
+                    result.insert("grpc-opts".to_string(), serde_json::to_string(&grpc_opts)?);
+                }
+            }
+            "pbk" => {
+                // Public key for Reality
+                if has_reality {
+                    let mut reality_opts = HashMap::new();
+                    reality_opts.insert("PublicKey".to_string(), value.to_string());
+                    if let Some(sid) = url.query_pairs().find(|(k, _)| k == "sid") {
+                        reality_opts.insert("ShortID".to_string(), sid.1.to_string());
+                    }
+                    result.insert("reality-opts".to_string(), serde_json::to_string(&reality_opts)?);
+                }
+            }
+            "sid" => {
+                // Short ID for Reality - handled with pbk
+            }
+            "spx" => {
+                // Skip TLS verification
+            }
+            _ => {}
+        }
+    }
+
+    // If has TLS but no SNI, default SNI to host
+    if (has_tls || has_reality) && !result.contains_key("sni") {
+        result.insert("sni".to_string(), host.to_string());
+    }
+
+    Ok(result)
+}
+
 pub fn convert_jms_to_clash(_data: &str) -> Result<String> {
     bail!("not implemented")
 }
@@ -603,4 +750,31 @@ mod tests {
         let line = "trojan://password123@1.2.3.4:443?sni=custom.sni.com#TestTrojanSNI";
         let result = parse_trojan(line).unwrap();
         assert_eq!(result["sni"], "custom.sni.com");
-    }}
+    }
+
+    #[test]
+    fn test_parse_vless_basic() {
+        let line = "vless://uuid-1234-5678@1.2.3.4:443?encryption=none#TestVLESS";
+        let result = parse_vless(line).unwrap();
+        assert_eq!(result["name"], "TestVLESS");
+        assert_eq!(result["type"], "vless");
+        assert_eq!(result["server"], "1.2.3.4");
+        assert_eq!(result["port"], "443");
+        assert_eq!(result["uuid"], "uuid-1234-5678");
+    }
+
+    #[test]
+    fn test_parse_vless_with_flow() {
+        let line = "vless://uuid@1.2.3.4:443?encryption=none&flow=xtls-rprx-vision&security=tls#TestVLESSFlow";
+        let result = parse_vless(line).unwrap();
+        assert_eq!(result["flow"], "xtls-rprx-vision");
+        assert_eq!(result["tls"], "true");
+    }
+
+    #[test]
+    fn test_parse_vless_with_reality() {
+        let line = "vless://uuid@1.2.3.4:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.google.com&pbk=publickey&sid=shortid&fp=chrome#TestReality";
+        let result = parse_vless(line).unwrap();
+        assert!(result.get("reality-opts").is_some());
+    }
+}
