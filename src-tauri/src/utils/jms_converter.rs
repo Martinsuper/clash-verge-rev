@@ -8,8 +8,8 @@ use std::collections::HashMap;
 
 use anyhow::{Result, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use serde::Deserialize;
 use serde_json;
+use serde_yaml_ng::{Mapping, Value, Sequence};
 
 /// Decode Base64 if the data appears to be encoded
 /// Returns decoded string if successful, otherwise returns original
@@ -229,6 +229,7 @@ pub fn parse_ss(line: &str) -> Result<HashMap<String, String>> {
 /// VMess JSON structure for deserializing VMess links
 /// Reference: https://www.v2ray.com/en/configuration/transport/websocket.html
 #[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
 struct VmessJson {
     /// Server address
     add: String,
@@ -628,6 +629,7 @@ pub fn parse_vless(line: &str) -> Result<HashMap<String, String>> {
 
 /// Parse host:port from a string
 /// Returns (host, port) or error if parsing fails
+#[allow(dead_code)]
 fn parse_host_port(host_port: &str) -> Result<(String, u16)> {
     if let Some(pos) = host_port.rfind(':') {
         let port_str = &host_port[pos + 1..];
@@ -656,9 +658,8 @@ pub fn parse_hysteria(line: &str) -> Result<HashMap<String, String>> {
         bail!("Invalid scheme for Hysteria: must start with hysteria://");
     }
 
-    // Parse using url crate
-    let url_str = format!("hysteria://{}", &line[10..]); // Re-add scheme for parsing
-    let url = Url::parse(&url_str)?;
+    // Parse using url crate - the line already starts with hysteria://
+    let url = Url::parse(line)?;
 
     // Extract server and port
     let host = url
@@ -708,8 +709,200 @@ pub fn parse_hysteria(line: &str) -> Result<HashMap<String, String>> {
     Ok(result)
 }
 
-pub fn convert_jms_to_clash(_data: &str) -> Result<String> {
-    bail!("not implemented")
+/// Parse Hysteria2 URL
+/// Format: hy2://password@host:port?params#name or hysteria2://password@host:port?params#name
+/// Params: sni, obfs, obfs-password, insecure (skip-cert-verify)
+pub fn parse_hysteria2(line: &str) -> Result<HashMap<String, String>> {
+    use url::Url;
+
+    let mut result = HashMap::new();
+    result.insert("type".to_string(), "hysteria2".to_string());
+
+    let line = line.trim();
+
+    // Handle both hy2:// and hysteria2:// prefixes - just use the line directly
+    // The line already starts with the correct prefix
+    let url = Url::parse(line)?;
+
+    // Extract password (username in URL terms)
+    let password = url.username();
+    if password.is_empty() {
+        bail!("Hysteria2 URL missing password");
+    }
+    result.insert("password".to_string(), urlencoding_decode(password));
+
+    // Extract server and port
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("Hysteria2 URL missing host"))?;
+    let port = url.port().unwrap_or(443);
+
+    result.insert("server".to_string(), host.to_string());
+    result.insert("port".to_string(), port.to_string());
+
+    // Extract name from fragment
+    if let Some(name) = url.fragment() {
+        result.insert("name".to_string(), urlencoding_decode(name));
+    }
+
+    // Parse query parameters
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "sni" => {
+                result.insert("sni".to_string(), value.to_string());
+            }
+            "obfs" => {
+                result.insert("obfs".to_string(), value.to_string());
+            }
+            "obfs-password" => {
+                result.insert("obfs-password".to_string(), value.to_string());
+            }
+            "insecure" => {
+                // Convert "1" or "true" to "true"
+                if value == "1" || value == "true" {
+                    result.insert("skip-cert-verify".to_string(), "true".to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Default SNI to host if not specified
+    if !result.contains_key("sni") {
+        result.insert("sni".to_string(), host.to_string());
+    }
+
+    Ok(result)
+}
+
+/// Parse a single proxy line and return the proxy configuration
+/// Dispatches to the appropriate parser based on the URL scheme
+pub fn parse_proxy_line(line: &str) -> Result<HashMap<String, String>> {
+    let line = line.trim();
+
+    // Skip empty lines
+    if line.is_empty() {
+        bail!("Empty proxy line");
+    }
+
+    // Dispatch based on scheme
+    if line.starts_with("ss://") {
+        parse_ss(line)
+    } else if line.starts_with("vmess://") {
+        parse_vmess(line)
+    } else if line.starts_with("trojan://") {
+        parse_trojan(line)
+    } else if line.starts_with("vless://") {
+        parse_vless(line)
+    } else if line.starts_with("hysteria://") {
+        parse_hysteria(line)
+    } else if line.starts_with("hy2://") || line.starts_with("hysteria2://") {
+        parse_hysteria2(line)
+    } else if line.starts_with("ssr://") {
+        parse_ssr(line)
+    } else {
+        bail!("Unknown proxy scheme: {}", line.split(':').next().unwrap_or("unknown"));
+    }
+}
+
+pub fn convert_jms_to_clash(data: &str) -> Result<String> {
+    // Step 1: Decode Base64 if needed
+    let decoded = decode_base64_if_needed(data);
+
+    // Step 2: Parse each proxy line
+    let mut proxies: Sequence = Sequence::new();
+    let mut proxy_names: Vec<String> = Vec::new();
+
+    for line in decoded.lines() {
+        let line = line.trim();
+        // Skip empty lines and comment lines
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // Try to parse the proxy line
+        match parse_proxy_line(line) {
+            Ok(proxy_map) => {
+                // Convert HashMap to serde_yaml_ng::Value::Mapping
+                let mut proxy_mapping = Mapping::new();
+                for (key, value) in proxy_map {
+                    // Handle nested options like ws-opts, grpc-opts, etc.
+                    if key.ends_with("-opts") || key == "reality-opts" {
+                        // Parse JSON string back to Mapping
+                        if let Ok(opts_map) = serde_json::from_str::<HashMap<String, String>>(&value) {
+                            let mut opts_mapping = Mapping::new();
+                            for (k, v) in opts_map {
+                                opts_mapping.insert(Value::String(k), Value::String(v));
+                            }
+                            proxy_mapping.insert(Value::String(key), Value::Mapping(opts_mapping));
+                        } else {
+                            proxy_mapping.insert(Value::String(key), Value::String(value));
+                        }
+                    } else if key == "alpn" {
+                        // alpn should be a sequence
+                        let alpn_list: Sequence = value.split(',')
+                            .map(|s| Value::String(s.trim().to_string()))
+                            .collect();
+                        proxy_mapping.insert(Value::String(key), Value::Sequence(alpn_list));
+                    } else {
+                        proxy_mapping.insert(Value::String(key), Value::String(value));
+                    }
+                }
+
+                // Get the proxy name for proxy-groups
+                let name = proxy_mapping.get(&Value::String("name".to_string()))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unnamed")
+                    .to_string();
+                proxy_names.push(name);
+
+                proxies.push(Value::Mapping(proxy_mapping));
+            }
+            Err(e) => {
+                // Log the error but continue parsing other proxies
+                log::warn!(target: "app", "Failed to parse proxy line '{}': {}", line, e);
+            }
+        }
+    }
+
+    // Step 3: Check if we have any valid proxies
+    if proxies.is_empty() {
+        bail!("JMS subscription contains no valid proxies");
+    }
+
+    // Step 4: Build Clash YAML config
+    let mut config = Mapping::new();
+
+    // Add proxies
+    config.insert(Value::String("proxies".to_string()), Value::Sequence(proxies));
+
+    // Add proxy-groups
+    let mut proxy_groups: Sequence = Sequence::new();
+
+    // Proxy group: select with all proxies + DIRECT
+    let mut proxy_group = Mapping::new();
+    proxy_group.insert(Value::String("name".to_string()), Value::String("Proxy".to_string()));
+    proxy_group.insert(Value::String("type".to_string()), Value::String("select".to_string()));
+
+    let mut group_proxies: Sequence = proxy_names.iter()
+        .map(|n| Value::String(n.clone()))
+        .collect();
+    group_proxies.push(Value::String("DIRECT".to_string()));
+    proxy_group.insert(Value::String("proxies".to_string()), Value::Sequence(group_proxies));
+
+    proxy_groups.push(Value::Mapping(proxy_group));
+
+    config.insert(Value::String("proxy-groups".to_string()), Value::Sequence(proxy_groups));
+
+    // Add rules
+    let mut rules: Sequence = Sequence::new();
+    rules.push(Value::String("MATCH,Proxy".to_string()));
+    config.insert(Value::String("rules".to_string()), Value::Sequence(rules));
+
+    // Step 5: Serialize to YAML
+    let yaml_str = serde_yaml_ng::to_string(&config)?;
+
+    Ok(yaml_str)
 }
 
 /// Parse SSR (ShadowsocksR) URL
@@ -979,7 +1172,7 @@ mod tests {
     }
 
     fn base64_encode(s: &str) -> String {
-        use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+        use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
         BASE64.encode(s.as_bytes())
     }
 
@@ -988,5 +1181,199 @@ mod tests {
         let line = "vless://uuid@1.2.3.4:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.google.com&pbk=publickey&sid=shortid&fp=chrome#TestReality";
         let result = parse_vless(line).unwrap();
         assert!(result.get("reality-opts").is_some());
+    }
+
+    #[test]
+    fn test_parse_hysteria_basic() {
+        let line = "hysteria://1.2.3.4:443?auth=authstring&sni=www.google.com#TestHysteria";
+        let result = parse_hysteria(line).unwrap();
+        assert_eq!(result["name"], "TestHysteria");
+        assert_eq!(result["type"], "hysteria");
+        assert_eq!(result["server"], "1.2.3.4");
+        assert_eq!(result["port"], "443");
+        assert_eq!(result["auth_str"], "authstring");
+        assert_eq!(result["sni"], "www.google.com");
+    }
+
+    #[test]
+    fn test_parse_hysteria_with_obfs() {
+        let line = "hysteria://1.2.3.4:443?auth=authstring&obfs=obfsstring&sni=www.google.com#TestHysteriaObfs";
+        let result = parse_hysteria(line).unwrap();
+        assert_eq!(result["obfs"], "obfsstring");
+    }
+
+    #[test]
+    fn test_parse_hysteria2_hy2() {
+        let line = "hy2://password123@1.2.3.4:443#TestHysteria2";
+        let result = parse_hysteria2(line).unwrap();
+        assert_eq!(result["name"], "TestHysteria2");
+        assert_eq!(result["type"], "hysteria2");
+        assert_eq!(result["server"], "1.2.3.4");
+        assert_eq!(result["port"], "443");
+        assert_eq!(result["password"], "password123");
+    }
+
+    #[test]
+    fn test_parse_hysteria2_full() {
+        let line = "hysteria2://password123@1.2.3.4:443?sni=www.google.com#TestHysteria2Full";
+        let result = parse_hysteria2(line).unwrap();
+        assert_eq!(result["name"], "TestHysteria2Full");
+        assert_eq!(result["sni"], "www.google.com");
+    }
+
+    #[test]
+    fn test_parse_hysteria2_with_obfs() {
+        let line = "hy2://password123@1.2.3.4:443?sni=www.google.com&obfs=salamander&obfs-password=obfspass#TestHysteria2Obfs";
+        let result = parse_hysteria2(line).unwrap();
+        assert_eq!(result["obfs"], "salamander");
+        assert_eq!(result["obfs-password"], "obfspass");
+    }
+
+    #[test]
+    fn test_parse_hysteria2_with_insecure() {
+        let line = "hy2://password123@1.2.3.4:443?insecure=1#TestHysteria2Insecure";
+        let result = parse_hysteria2(line).unwrap();
+        assert_eq!(result["skip-cert-verify"], "true");
+    }
+
+    #[test]
+    fn test_parse_proxy_line_ss() {
+        let line = "ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:443#TestSS";
+        let result = parse_proxy_line(line).unwrap();
+        assert_eq!(result["type"], "ss");
+        assert_eq!(result["name"], "TestSS");
+    }
+
+    #[test]
+    fn test_parse_proxy_line_vmess() {
+        let json = "eyJhZGQiOiIxLjIuMy40IiwiYWlkIjowLCJob3N0IjoiIiwiaWQiOiJ1dWlkIiwibmV0IjoidGNwIiwicGF0aCI6IiIsInBzIjoiVGVzdFZNZXNzIiwicG9ydCI6NDQzLCJzY3kiOiJhdXRvIiwidGxzIjoiIiwidiI6IjIifQ==";
+        let line = format!("vmess://{}", json);
+        let result = parse_proxy_line(&line).unwrap();
+        assert_eq!(result["type"], "vmess");
+        assert_eq!(result["name"], "TestVMess");
+    }
+
+    #[test]
+    fn test_parse_proxy_line_trojan() {
+        let line = "trojan://password123@1.2.3.4:443#TestTrojan";
+        let result = parse_proxy_line(line).unwrap();
+        assert_eq!(result["type"], "trojan");
+    }
+
+    #[test]
+    fn test_parse_proxy_line_vless() {
+        let line = "vless://uuid@1.2.3.4:443#TestVLESS";
+        let result = parse_proxy_line(line).unwrap();
+        assert_eq!(result["type"], "vless");
+    }
+
+    #[test]
+    fn test_parse_proxy_line_hysteria() {
+        let line = "hysteria://1.2.3.4:443?auth=authstring#TestHysteria";
+        let result = parse_proxy_line(line).unwrap();
+        assert_eq!(result["type"], "hysteria");
+    }
+
+    #[test]
+    fn test_parse_proxy_line_hysteria2() {
+        let line = "hy2://password123@1.2.3.4:443#TestHysteria2";
+        let result = parse_proxy_line(line).unwrap();
+        assert_eq!(result["type"], "hysteria2");
+    }
+
+    #[test]
+    fn test_parse_proxy_line_ssr() {
+        let inner = "1.2.3.4:443:origin:aes-128-cfb:plain:YmFzZTY0cGFzc3dvcmQ=/?remarks=VGVzdFNS";
+        let encoded = base64_encode(inner);
+        let line = format!("ssr://{}", encoded);
+        let result = parse_proxy_line(&line).unwrap();
+        assert_eq!(result["type"], "ssr");
+    }
+
+    #[test]
+    fn test_parse_proxy_line_unknown_scheme() {
+        let line = "unknown://test";
+        let result = parse_proxy_line(line);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_proxy_line_empty() {
+        let result = parse_proxy_line("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_convert_jms_to_clash_single_proxy() {
+        // Single SS proxy
+        let data = "ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:443#TestSS";
+        let yaml = convert_jms_to_clash(data).unwrap();
+
+        // Verify YAML contains expected fields
+        assert!(yaml.contains("proxies:"));
+        assert!(yaml.contains("proxy-groups:"));
+        assert!(yaml.contains("rules:"));
+        assert!(yaml.contains("name: TestSS"));
+        assert!(yaml.contains("type: ss"));
+        assert!(yaml.contains("server: 1.2.3.4"));
+        assert!(yaml.contains("MATCH,Proxy"));
+    }
+
+    #[test]
+    fn test_convert_jms_to_clash_multiple_proxies() {
+        // Multiple proxies with different protocols
+        let data = "ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:443#TestSS\nvmess://eyJhZGQiOiIxLjIuMy40IiwiYWlkIjowLCJob3N0IjoiIiwiaWQiOiJ1dWlkIiwibmV0IjoidGNwIiwicGF0aCI6IiIsInBzIjoiVGVzdFZNZXNzIiwicG9ydCI6NDQzLCJzY3kiOiJhdXRvIiwidGxzIjoiIiwidiI6IjIifQ==\ntrojan://password123@1.2.3.4:443#TestTrojan";
+        let yaml = convert_jms_to_clash(data).unwrap();
+
+        // Verify all proxies are in the output
+        assert!(yaml.contains("name: TestSS"));
+        assert!(yaml.contains("name: TestVMess"));
+        assert!(yaml.contains("name: TestTrojan"));
+        assert!(yaml.contains("type: ss"));
+        assert!(yaml.contains("type: vmess"));
+        assert!(yaml.contains("type: trojan"));
+
+        // Verify proxy group contains all proxies
+        assert!(yaml.contains("- TestSS"));
+        assert!(yaml.contains("- TestVMess"));
+        assert!(yaml.contains("- TestTrojan"));
+        assert!(yaml.contains("- DIRECT"));
+    }
+
+    #[test]
+    fn test_convert_jms_to_clash_base64_encoded() {
+        // Base64 encoded proxy links
+        let inner = "ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:443#TestSS";
+        let encoded = base64_encode(inner);
+        let yaml = convert_jms_to_clash(&encoded).unwrap();
+
+        assert!(yaml.contains("name: TestSS"));
+    }
+
+    #[test]
+    fn test_convert_jms_to_clash_empty() {
+        let result = convert_jms_to_clash("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_convert_jms_to_clash_invalid_only() {
+        // Only invalid proxy lines
+        let data = "unknown://test\ninvalid";
+        let result = convert_jms_to_clash(data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_convert_jms_to_clash_mixed_valid_invalid() {
+        // Mix of valid and invalid lines - should succeed with valid ones
+        let data = "ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:443#TestSS\nunknown://invalid\n# comment\nvmess://eyJhZGQiOiIxLjIuMy40IiwiYWlkIjowLCJob3N0IjoiIiwiaWQiOiJ1dWlkIiwibmV0IjoidGNwIiwicGF0aCI6IiIsInBzIjoiVGVzdFZNZXNzIiwicG9ydCI6NDQzLCJzY3kiOiJhdXRvIiwidGxzIjoiIiwidiI6IjIifQ==";
+        let yaml = convert_jms_to_clash(data).unwrap();
+
+        assert!(yaml.contains("name: TestSS"));
+        assert!(yaml.contains("name: TestVMess"));
+        // Invalid lines should not appear
+        assert!(!yaml.contains("unknown"));
+        assert!(!yaml.contains("invalid"));
     }
 }

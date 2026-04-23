@@ -3,6 +3,7 @@ pub mod connections_stream;
 pub mod dirs;
 pub mod help;
 pub mod init;
+pub mod jms_converter;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod network;
@@ -17,4 +18,3 @@ pub mod tmpl;
 #[cfg(target_os = "macos")]
 pub mod tray_speed;
 pub mod window_manager;
-pub mod jms_converter;
