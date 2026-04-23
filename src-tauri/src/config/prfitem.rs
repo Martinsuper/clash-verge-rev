@@ -2,6 +2,7 @@ use crate::{
     config::profiles,
     utils::{
         dirs, help,
+        jms_converter,
         network::{NetworkManager, ProxyType},
         tmpl,
     },
@@ -385,11 +386,39 @@ impl PrfItem {
         let data = data.trim_start_matches('\u{feff}');
 
         // check the data whether the valid yaml format
-        let yaml = serde_yaml_ng::from_str::<Mapping>(data).context("the remote profile data is invalid yaml")?;
-
-        if !yaml.contains_key("proxies") && !yaml.contains_key("proxy-providers") {
-            bail!("profile does not contain `proxies` or `proxy-providers`");
-        }
+        // Try to parse as Clash YAML first, then try JMS format conversion
+        // The parsed YAML is only used for validation - the data string is what's saved
+        let _yaml = match serde_yaml_ng::from_str::<Mapping>(data) {
+            Ok(y) if y.contains_key("proxies") || y.contains_key("proxy-providers") => y,
+            Ok(_) => {
+                // Valid YAML but no proxies/proxy-providers - try JMS conversion
+                log::info!(target: "app", "Valid YAML but no proxies, trying JMS conversion");
+                match jms_converter::convert_jms_to_clash(data) {
+                    Ok(converted) => {
+                        log::info!(target: "app", "JMS subscription converted successfully");
+                        serde_yaml_ng::from_str(&converted)
+                            .context("JMS conversion produced invalid YAML")?
+                    }
+                    Err(e) => {
+                        bail!("profile does not contain `proxies` or `proxy-providers` and JMS conversion failed: {}", e);
+                    }
+                }
+            }
+            Err(_) => {
+                // Invalid YAML - try JMS conversion
+                log::info!(target: "app", "Invalid YAML, trying JMS conversion");
+                match jms_converter::convert_jms_to_clash(data) {
+                    Ok(converted) => {
+                        log::info!(target: "app", "JMS subscription converted successfully");
+                        serde_yaml_ng::from_str(&converted)
+                            .context("JMS conversion produced invalid YAML")?
+                    }
+                    Err(e) => {
+                        bail!("the remote profile data is neither valid Clash YAML nor valid JMS format: {}", e);
+                    }
+                }
+            }
+        };
 
         if merge.is_none() {
             let merge_item = &mut Self::from_merge(None)?;
