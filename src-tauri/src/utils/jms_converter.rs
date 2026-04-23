@@ -376,6 +376,109 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
 }
 
 /// Convert JMS subscription data to Clash YAML
+/// Parse Trojan URL
+/// Format: trojan://password@host:port?params#name
+pub fn parse_trojan(line: &str) -> Result<HashMap<String, String>> {
+    use url::Url;
+
+    let mut result = HashMap::new();
+    result.insert("type".to_string(), "trojan".to_string());
+
+    let line = line.trim();
+
+    // Extract scheme
+    if !line.starts_with("trojan://") {
+        bail!("Invalid scheme for Trojan: must start with trojan://");
+    }
+
+    // Parse using url crate
+    let url_str = format!("trojan://{}", &line[9..]); // Re-add scheme for parsing
+    let url = Url::parse(&url_str)?;
+
+    let password = url.username();
+    // Extract password (username in URL terms)
+    if password.is_empty() {
+        bail!("Trojan URL missing password");
+    }
+    result.insert("password".to_string(), urlencoding_decode(password));
+
+    // Extract server and port
+    let host = url.host_str().ok_or_else(|| anyhow::anyhow!("Trojan URL missing host"))?;
+    let port = url.port().unwrap_or(443);
+
+    result.insert("server".to_string(), host.to_string());
+    result.insert("port".to_string(), port.to_string());
+
+    // Default SNI to host
+    result.insert("sni".to_string(), host.to_string());
+
+    // Extract name from fragment
+    if let Some(name) = url.fragment() {
+        result.insert("name".to_string(), urlencoding_decode(name));
+    }
+
+    // Parse query parameters
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "sni" => {
+                result.insert("sni".to_string(), value.to_string());
+            }
+            "type" => {
+                match value.as_ref() {
+                    "ws" => {
+                        result.insert("network".to_string(), "ws".to_string());
+                    }
+                    "grpc" => {
+                        result.insert("network".to_string(), "grpc".to_string());
+                    }
+                    "h2" | "http" => {
+                        result.insert("network".to_string(), "h2".to_string());
+                    }
+                    _ => {}
+                }
+            }
+            "host" => {
+                // Could be ws host or sni
+                // Store in ws-opts if network is ws
+                if result.get("network").map(|s| s.as_str()) == Some("ws") {
+                    let mut ws_opts = HashMap::new();
+                    ws_opts.insert("Host".to_string(), value.to_string());
+                    // Check for path too
+                    if let Some(path) = url.query_pairs().find(|(k, _)| k == "path") {
+                        ws_opts.insert("Path".to_string(), path.1.to_string());
+                    }
+                    result.insert("ws-opts".to_string(), serde_json::to_string(&ws_opts)?);
+                } else {
+                    result.insert("sni".to_string(), value.to_string());
+                }
+            }
+            "path" => {
+                // Add path to appropriate opts based on network
+                if result.get("network").map(|s| s.as_str()) == Some("ws") {
+                    if let Some(ws_opts_str) = result.get("ws-opts") {
+                        let mut ws_opts: HashMap<String, String> = serde_json::from_str(ws_opts_str)?;
+                        ws_opts.insert("Path".to_string(), value.to_string());
+                        result.insert("ws-opts".to_string(), serde_json::to_string(&ws_opts)?);
+                    } else {
+                        let mut ws_opts = HashMap::new();
+                        ws_opts.insert("Path".to_string(), value.to_string());
+                        result.insert("ws-opts".to_string(), serde_json::to_string(&ws_opts)?);
+                    }
+                } else if result.get("network").map(|s| s.as_str()) == Some("h2") {
+                    let mut h2_opts = HashMap::new();
+                    h2_opts.insert("Path".to_string(), value.to_string());
+                    result.insert("h2-opts".to_string(), serde_json::to_string(&h2_opts)?);
+                }
+            }
+            "tls" | "security" => {
+                // TLS is enabled by default for Trojan
+            }
+            _ => {}
+        }
+    }
+
+    Ok(result)
+}
 pub fn convert_jms_to_clash(_data: &str) -> Result<String> {
     bail!("not implemented")
 }
@@ -474,4 +577,30 @@ mod tests {
         assert_eq!(result["network"], "grpc");
         assert!(result.get("grpc-opts").is_some());
     }
-}
+
+    #[test]
+    fn test_parse_trojan_basic() {
+        let line = "trojan://password123@1.2.3.4:443#TestTrojan";
+        let result = parse_trojan(line).unwrap();
+        assert_eq!(result["name"], "TestTrojan");
+        assert_eq!(result["type"], "trojan");
+        assert_eq!(result["server"], "1.2.3.4");
+        assert_eq!(result["port"], "443");
+        assert_eq!(result["password"], "password123");
+        assert_eq!(result["sni"], "1.2.3.4");
+    }
+
+    #[test]
+    fn test_parse_trojan_with_ws() {
+        let line = "trojan://password123@1.2.3.4:443?type=ws&host=ws.host.com&path=/ws#TestTrojanWS";
+        let result = parse_trojan(line).unwrap();
+        assert_eq!(result["name"], "TestTrojanWS");
+        assert!(result.get("ws-opts").is_some());
+    }
+
+    #[test]
+    fn test_parse_trojan_with_sni() {
+        let line = "trojan://password123@1.2.3.4:443?sni=custom.sni.com#TestTrojanSNI";
+        let result = parse_trojan(line).unwrap();
+        assert_eq!(result["sni"], "custom.sni.com");
+    }}
