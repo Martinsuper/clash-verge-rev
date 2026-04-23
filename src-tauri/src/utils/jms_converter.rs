@@ -8,6 +8,8 @@ use std::collections::HashMap;
 
 use anyhow::{Result, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use serde::Deserialize;
+use serde_json;
 
 /// Decode Base64 if the data appears to be encoded
 /// Returns decoded string if successful, otherwise returns original
@@ -224,6 +226,155 @@ pub fn parse_ss(line: &str) -> Result<HashMap<String, String>> {
     Ok(result)
 }
 
+/// VMess JSON structure for deserializing VMess links
+/// Reference: https://www.v2ray.com/en/configuration/transport/websocket.html
+#[derive(serde::Deserialize, Debug)]
+struct VmessJson {
+    /// Server address
+    add: String,
+    /// Alter ID
+    aid: Option<u32>,
+    /// Host (used for WebSocket host or SNI)
+    host: Option<String>,
+    /// User UUID
+    id: String,
+    /// Network type (tcp, ws, grpc, h2, etc.)
+    net: Option<String>,
+    /// Path (WebSocket path, gRPC service name)
+    path: Option<String>,
+    /// Proxy name
+    ps: Option<String>,
+    /// Server port
+    port: u16,
+    /// Security method (auto, aes-128-gcm, etc.)
+    scy: Option<String>,
+    /// TLS settings (tls, reality)
+    tls: Option<String>,
+    /// Protocol version (should be 2)
+    v: Option<String>,
+    /// gRPC transport type (multi/gun)
+    #[serde(rename = "type")]
+    transport_type: Option<String>,
+}
+
+/// Parse VMess URL
+/// Format: vmess://base64-json
+pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
+    let mut result = HashMap::new();
+    result.insert("type".to_string(), "vmess".to_string());
+
+    let line = line.trim();
+
+    // Extract scheme
+    if !line.starts_with("vmess://") {
+        bail!("Invalid scheme for VMess: must start with vmess://");
+    }
+
+    // Get the base64-encoded JSON after vmess://
+    let json_b64 = &line[8..];
+
+    // Decode base64
+    let json_bytes = BASE64.decode(json_b64)?;
+    let json_str = String::from_utf8(json_bytes)?;
+
+    // Parse JSON
+    let vmess: VmessJson = serde_json::from_str(&json_str)?;
+
+    // Extract basic fields
+    result.insert("server".to_string(), vmess.add);
+    result.insert("port".to_string(), vmess.port.to_string());
+    result.insert("uuid".to_string(), vmess.id);
+
+    // Name
+    if let Some(ps) = vmess.ps {
+        if !ps.is_empty() {
+            result.insert("name".to_string(), ps);
+        }
+    }
+
+    // Network type (default: tcp)
+    let network = vmess.net.unwrap_or_else(|| "tcp".to_string());
+    result.insert("network".to_string(), network.clone());
+
+    // Security/encryption (default: auto)
+    if let Some(scy) = vmess.scy {
+        result.insert("cipher".to_string(), scy);
+    } else {
+        result.insert("cipher".to_string(), "auto".to_string());
+    }
+
+    // Handle TLS
+    let has_tls = vmess.tls.as_ref().map(|t| !t.is_empty()).unwrap_or(false);
+    if has_tls {
+        result.insert("tls".to_string(), "true".to_string());
+    }
+
+    // Handle transport-specific options
+    match network.as_str() {
+        "ws" => {
+            // WebSocket transport
+            let mut ws_opts = HashMap::new();
+            if let Some(ref host) = vmess.host {
+                if !host.is_empty() {
+                    ws_opts.insert("Host".to_string(), host.clone());
+                }
+            }
+            if let Some(ref path) = vmess.path {
+                if !path.is_empty() {
+                    ws_opts.insert("Path".to_string(), path.clone());
+                }
+            }
+            if !ws_opts.is_empty() {
+                result.insert("ws-opts".to_string(), serde_json::to_string(&ws_opts)?);
+            }
+        }
+        "grpc" => {
+            // gRPC transport
+            let mut grpc_opts = HashMap::new();
+            if let Some(ref path) = vmess.path {
+                if !path.is_empty() {
+                    grpc_opts.insert("grpc-service-name".to_string(), path.clone());
+                }
+            }
+            if let Some(ref transport_type) = vmess.transport_type {
+                if !transport_type.is_empty() {
+                    grpc_opts.insert("grpc-mode".to_string(), transport_type.clone());
+                }
+            }
+            if !grpc_opts.is_empty() {
+                result.insert("grpc-opts".to_string(), serde_json::to_string(&grpc_opts)?);
+            }
+        }
+        "h2" => {
+            // HTTP/2 transport
+            let mut h2_opts = HashMap::new();
+            if let Some(ref host) = vmess.host {
+                if !host.is_empty() {
+                    h2_opts.insert("Host".to_string(), host.clone());
+                }
+            }
+            if let Some(ref path) = vmess.path {
+                if !path.is_empty() {
+                    h2_opts.insert("Path".to_string(), path.clone());
+                }
+            }
+            if !h2_opts.is_empty() {
+                result.insert("h2-opts".to_string(), serde_json::to_string(&h2_opts)?);
+            }
+        }
+        _ => {
+            // TCP or others - handle host for SNI
+            if let Some(ref host) = vmess.host {
+                if !host.is_empty() && has_tls {
+                    result.insert("sni".to_string(), host.clone());
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
 /// Convert JMS subscription data to Clash YAML
 pub fn convert_jms_to_clash(_data: &str) -> Result<String> {
     bail!("not implemented")
@@ -285,5 +436,42 @@ mod tests {
         let result = parse_ss(line).unwrap();
         assert_eq!(result["name"], "TestPlugin");
         assert_eq!(result["plugin"], "obfs-local;obfs=http;obfs-host=www.google.com");
+    }
+
+    #[test]
+    fn test_parse_vmess_basic() {
+        // Basic VMess with JSON payload
+        // {"add":"1.2.3.4","aid":0,"host":"","id":"uuid","net":"tcp","path":"","ps":"TestVMess","port":443,"scy":"auto","tls":"","v":"2"}
+        let json = "eyJhZGQiOiIxLjIuMy40IiwiYWlkIjowLCJob3N0IjoiIiwiaWQiOiJ1dWlkIiwibmV0IjoidGNwIiwicGF0aCI6IiIsInBzIjoiVGVzdFZNZXNzIiwicG9ydCI6NDQzLCJzY3kiOiJhdXRvIiwidGxzIjoiIiwidiI6IjIifQ==";
+        let line = format!("vmess://{}", json);
+        let result = parse_vmess(&line).unwrap();
+        assert_eq!(result["name"], "TestVMess");
+        assert_eq!(result["type"], "vmess");
+        assert_eq!(result["server"], "1.2.3.4");
+        assert_eq!(result["port"], "443");
+        assert_eq!(result["uuid"], "uuid");
+    }
+
+    #[test]
+    fn test_parse_vmess_with_ws() {
+        // VMess with WebSocket transport
+        let json = "eyJhZGQiOiIxLjIuMy40IiwiYWlkIjowLCJob3N0Ijoid3MuaG9zdC5jb20iLCJpZCI6InV1aWQiLCJuZXQiOiJ3cyIsInBhdGgiOiIvd3MiLCJwcyI6IlRlc3RXUyIsInBvcnQiOjQ0Mywic2N5IjoiYXV0byIsInRscyI6InRscyIsInYiOiIyIn0=";
+        let line = format!("vmess://{}", json);
+        let result = parse_vmess(&line).unwrap();
+        assert_eq!(result["name"], "TestWS");
+        assert_eq!(result["network"], "ws");
+        assert!(result.get("ws-opts").is_some());
+        assert_eq!(result["tls"], "true");
+    }
+
+    #[test]
+    fn test_parse_vmess_with_grpc() {
+        // VMess with gRPC transport
+        let json = "eyJhZGQiOiIxLjIuMy40IiwiYWlkIjowLCJpZCI6InV1aWQiLCJuZXQiOiJncnBjIiwicGF0aCI6ImdycGMtcGF0aCIsInBzIjoiVGVzdEdycGMiLCJwb3J0Ijo0NDMsInNjeSI6ImF1dG8iLCJ0bHMiOiJ0bHMiLCJ0eXBlIjoibXVsdGktZ3JwYyIsInYiOiIyIn0=";
+        let line = format!("vmess://{}", json);
+        let result = parse_vmess(&line).unwrap();
+        assert_eq!(result["name"], "TestGrpc");
+        assert_eq!(result["network"], "grpc");
+        assert!(result.get("grpc-opts").is_some());
     }
 }
