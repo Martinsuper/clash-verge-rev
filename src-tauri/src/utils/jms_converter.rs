@@ -5,7 +5,8 @@
 
 use std::borrow::Cow;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 /// Decode Base64 if the data appears to be encoded
 /// Returns decoded string if successful, otherwise returns original
@@ -25,16 +26,8 @@ fn decode_base64_if_needed(data: &str) -> Cow<'_, str> {
         return Cow::Borrowed(trimmed);
     }
 
-    // Try Base64 decoding
-    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-
-    // Add padding if needed
-    let mut data_str = trimmed.to_string();
-    while data_str.len() % 4 != 0 {
-        data_str.push('=');
-    }
-
-    match BASE64.decode(&data_str) {
+    // Try Base64 decoding (handles missing padding automatically)
+    match BASE64.decode(trimmed) {
         Ok(decoded) => {
             // Try to convert to UTF-8
             match String::from_utf8(decoded) {
