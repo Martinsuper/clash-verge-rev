@@ -109,14 +109,6 @@ fn parse_ss_plugin_query(plugin_str: &str) -> HashMap<String, String> {
     opts
 }
 
-/// SS plugin options struct
-#[allow(dead_code)]
-#[derive(Debug, Default)]
-struct SsPluginOpts {
-    plugin: String,
-    opts: HashMap<String, String>,
-}
-
 /// Parse Shadowsocks URL
 /// Supports:
 /// - SIP002: ss://base64(method:password)@host:port#name
@@ -164,7 +156,9 @@ pub fn parse_ss(line: &str) -> Result<HashMap<String, String>> {
 
         if let Some(pos) = host_port.rfind(':') {
             let port_str = &host_port[pos + 1..];
-            let port: u16 = port_str.parse().map_err(|_| anyhow::anyhow!("Invalid port: {}", port_str))?;
+            let port: u16 = port_str
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid port: {}", port_str))?;
             (host_port[..pos].to_string(), port, query)
         } else {
             bail!("Invalid SS URL: missing port");
@@ -180,7 +174,9 @@ pub fn parse_ss(line: &str) -> Result<HashMap<String, String>> {
             let host_port = &decoded_str[pos + 1..];
             if let Some(ppos) = host_port.rfind(':') {
                 let port_str = &host_port[ppos + 1..];
-                let port: u16 = port_str.parse().map_err(|_| anyhow::anyhow!("Invalid port in legacy format: {}", port_str))?;
+                let port: u16 = port_str
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("Invalid port in legacy format: {}", port_str))?;
                 (host_port[..ppos].to_string(), port, None)
             } else {
                 bail!("Invalid legacy SS URL: missing port");
@@ -211,7 +207,8 @@ pub fn parse_ss(line: &str) -> Result<HashMap<String, String>> {
                 if key == "plugin" {
                     let plugin_opts = parse_ss_plugin_query(value);
                     if let Some(_plugin_name) = plugin_opts.get("obfs-local") {
-                        let mut plugin_str = format!("obfs-local;obfs={}", plugin_opts.get("obfs").unwrap_or(&"".to_string()));
+                        let mut plugin_str =
+                            format!("obfs-local;obfs={}", plugin_opts.get("obfs").unwrap_or(&"".to_string()));
                         if let Some(obfs_host) = plugin_opts.get("obfs-host") {
                             plugin_str.push_str(&format!(";obfs-host={}", obfs_host));
                         }
@@ -287,6 +284,6 @@ mod tests {
         let line = "ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:443/?plugin=obfs-local%3bobfs%3dhttp%3bobfs-host%3dwww.google.com#TestPlugin";
         let result = parse_ss(line).unwrap();
         assert_eq!(result["name"], "TestPlugin");
-        assert!(result.get("plugin").is_some());
+        assert_eq!(result["plugin"], "obfs-local;obfs=http;obfs-host=www.google.com");
     }
 }
