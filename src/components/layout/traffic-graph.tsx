@@ -12,6 +12,7 @@ const upLineWidth = 4
 
 const downLineAlpha = 1
 const downLineWidth = 4
+const frameIntervalMs = 1000 / 15
 
 const defaultList = Array(maxPoint + 2).fill({ up: 0, down: 0 })
 
@@ -69,6 +70,7 @@ export function TrafficGraph({ ref }: { ref?: Ref<TrafficRef> }) {
 
   useEffect(() => {
     let raf = 0
+    let frameTimer: ReturnType<typeof setTimeout> | null = null
     const canvas = canvasRef.current!
 
     if (!canvas) return
@@ -144,14 +146,37 @@ export function TrafficGraph({ ref }: { ref?: Ref<TrafficRef> }) {
       }
     }
 
+    const scheduleDraw = (lastTime: number, delay = 0) => {
+      if (frameTimer !== null) {
+        clearTimeout(frameTimer)
+        frameTimer = null
+      }
+
+      if (delay > 0) {
+        frameTimer = setTimeout(() => {
+          frameTimer = null
+          raf = requestAnimationFrame(() => {
+            raf = 0
+            drawGraph(lastTime)
+          })
+        }, delay)
+        return
+      }
+
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        drawGraph(lastTime)
+      })
+    }
+
     const drawGraph = (lastTime: number) => {
       const list = listRef.current
       const lineStyle = styleRef.current
 
       const now = Date.now()
       const diff = now - lastTime
-      if (diff < 33) {
-        raf = requestAnimationFrame(() => drawGraph(lastTime))
+      if (diff < frameIntervalMs) {
+        scheduleDraw(lastTime, frameIntervalMs - diff)
         return
       }
       const temp = Math.min((diff / 1000) * dx + countRef.current, dx)
@@ -196,13 +221,18 @@ export function TrafficGraph({ ref }: { ref?: Ref<TrafficRef> }) {
       context.stroke()
       context.closePath()
 
-      raf = requestAnimationFrame(() => drawGraph(now))
+      scheduleDraw(now, frameIntervalMs)
     }
 
-    drawGraph(Date.now())
+    drawGraph(Date.now() - frameIntervalMs)
 
     return () => {
-      cancelAnimationFrame(raf)
+      if (frameTimer !== null) {
+        clearTimeout(frameTimer)
+      }
+      if (raf) {
+        cancelAnimationFrame(raf)
+      }
     }
   }, [palette])
 
