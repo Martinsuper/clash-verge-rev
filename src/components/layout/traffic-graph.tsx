@@ -20,6 +20,8 @@ export interface TrafficRef {
   toggleStyle: () => void
 }
 
+type TrafficValueKey = 'up' | 'down'
+
 /**
  * draw the traffic graph
  */
@@ -101,42 +103,49 @@ export function TrafficGraph({ ref }: { ref?: Ref<TrafficRef> }) {
       return 1
     }
 
-    const drawBezier = (list: number[], offset: number) => {
-      const points = list.map((y, i) => [
-        (dx * (i - 1) - offset + 3) | 0,
-        countY(y),
-      ])
+    const drawBezier = (
+      list: Traffic[],
+      valueKey: TrafficValueKey,
+      offset: number,
+    ) => {
+      if (list.length === 0) return
 
-      context.moveTo(points[0][0], points[0][1])
+      const firstX = (dx * -1 - offset + 3) | 0
+      const firstY = countY(list[0]?.[valueKey] ?? 0)
 
-      for (let i = 1; i < points.length; i++) {
-        const p1 = points[i]
-        const p2 = points[i + 1] || p1
+      context.moveTo(firstX, firstY)
 
-        const x1 = (p1[0] + p2[0]) / 2
-        const y1 = (p1[1] + p2[1]) / 2
+      for (let i = 1; i < list.length; i++) {
+        const p1x = (dx * (i - 1) - offset + 3) | 0
+        const p1y = countY(list[i]?.[valueKey] ?? 0)
 
-        context.quadraticCurveTo(p1[0], p1[1], x1, y1)
+        const hasNext = i + 1 < list.length
+        const p2x = hasNext ? (dx * i - offset + 3) | 0 : p1x
+        const p2y = hasNext ? countY(list[i + 1]?.[valueKey] ?? 0) : p1y
+
+        context.quadraticCurveTo(p1x, p1y, (p1x + p2x) / 2, (p1y + p2y) / 2)
       }
     }
 
-    const drawLine = (list: number[], offset: number) => {
-      const points = list.map((y, i) => [
-        (dx * (i - 1) - offset) | 0,
-        countY(y),
-      ])
+    const drawLine = (
+      list: Traffic[],
+      valueKey: TrafficValueKey,
+      offset: number,
+    ) => {
+      if (list.length === 0) return
 
-      context.moveTo(points[0][0], points[0][1])
+      context.moveTo((dx * -1 - offset) | 0, countY(list[0]?.[valueKey] ?? 0))
 
-      for (let i = 1; i < points.length; i++) {
-        const p = points[i]
-        context.lineTo(p[0], p[1])
+      for (let i = 1; i < list.length; i++) {
+        context.lineTo(
+          (dx * (i - 1) - offset) | 0,
+          countY(list[i]?.[valueKey] ?? 0),
+        )
       }
     }
 
     const drawGraph = (lastTime: number) => {
-      const listUp = listRef.current.map((v) => v.up)
-      const listDown = listRef.current.map((v) => v.down)
+      const list = listRef.current
       const lineStyle = styleRef.current
 
       const now = Date.now()
@@ -168,9 +177,9 @@ export function TrafficGraph({ ref }: { ref?: Ref<TrafficRef> }) {
       context.lineWidth = upLineWidth
       context.strokeStyle = upLineColor
       if (lineStyle) {
-        drawBezier(listUp, offset)
+        drawBezier(list, 'up', offset)
       } else {
-        drawLine(listUp, offset)
+        drawLine(list, 'up', offset)
       }
       context.stroke()
       context.closePath()
@@ -180,9 +189,9 @@ export function TrafficGraph({ ref }: { ref?: Ref<TrafficRef> }) {
       context.lineWidth = downLineWidth
       context.strokeStyle = downLineColor
       if (lineStyle) {
-        drawBezier(listDown, offset)
+        drawBezier(list, 'down', offset)
       } else {
-        drawLine(listDown, offset)
+        drawLine(list, 'down', offset)
       }
       context.stroke()
       context.closePath()
