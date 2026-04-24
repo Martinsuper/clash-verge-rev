@@ -77,11 +77,11 @@ fn urlencoding_decode(input: &str) -> String {
     while let Some(c) = chars.next() {
         if c == '%' {
             let hex: String = chars.by_ref().take(2).collect();
-            if hex.len() == 2 {
-                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                    result.push(byte as char);
-                    continue;
-                }
+            if hex.len() == 2
+                && let Ok(byte) = u8::from_str_radix(&hex, 16)
+            {
+                result.push(byte as char);
+                continue;
             }
             // Invalid escape, keep as is
             result.push('%');
@@ -147,7 +147,6 @@ pub fn parse_ss(line: &str) -> Result<HashMap<String, String>> {
     };
 
     // Parse host:port (and optional query)
-    let host_string: String;
     let (host, port, query) = if let Some(hpq) = host_port_query {
         // Check for query string
         let (host_port, query) = if let Some(qpos) = hpq.find("/?") {
@@ -187,14 +186,13 @@ pub fn parse_ss(line: &str) -> Result<HashMap<String, String>> {
             bail!("Invalid legacy SS URL: missing host:port in decoded userinfo");
         }
     };
-    host_string = host;
 
     // Decode userinfo to get method and password
     let (method, password) = decode_base64_user_info(userinfo)?;
     result.insert("cipher".to_string(), method);
     result.insert("password".to_string(), password);
 
-    result.insert("server".to_string(), host_string);
+    result.insert("server".to_string(), host);
     result.insert("port".to_string(), port.to_string());
 
     // Get name from fragment
@@ -205,19 +203,19 @@ pub fn parse_ss(line: &str) -> Result<HashMap<String, String>> {
     // Parse plugin query if present
     if let Some(query) = query {
         for param in query.split('&') {
-            if let Some((key, value)) = param.split_once('=') {
-                if key == "plugin" {
-                    let plugin_opts = parse_ss_plugin_query(value);
-                    if let Some(_plugin_name) = plugin_opts.get("obfs-local") {
-                        let mut plugin_str =
-                            format!("obfs-local;obfs={}", plugin_opts.get("obfs").unwrap_or(&"".to_string()));
-                        if let Some(obfs_host) = plugin_opts.get("obfs-host") {
-                            plugin_str.push_str(&format!(";obfs-host={}", obfs_host));
-                        }
-                        result.insert("plugin".to_string(), plugin_str);
-                    } else {
-                        result.insert("plugin".to_string(), value.to_string());
+            if let Some((key, value)) = param.split_once('=')
+                && key == "plugin"
+            {
+                let plugin_opts = parse_ss_plugin_query(value);
+                if let Some(_plugin_name) = plugin_opts.get("obfs-local") {
+                    let obfs_val = plugin_opts.get("obfs").map(|s| s.as_str()).unwrap_or("");
+                    let mut plugin_str = format!("obfs-local;obfs={}", obfs_val);
+                    if let Some(obfs_host) = plugin_opts.get("obfs-host") {
+                        plugin_str.push_str(&format!(";obfs-host={}", obfs_host));
                     }
+                    result.insert("plugin".to_string(), plugin_str);
+                } else {
+                    result.insert("plugin".to_string(), value.to_string());
                 }
             }
         }
@@ -328,7 +326,7 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
     let json_b64 = &line[8..];
 
     // Add padding if needed (VMess links often have missing padding)
-    let json_b64_padded = if json_b64.len() % 4 != 0 {
+    let json_b64_padded = if !json_b64.len().is_multiple_of(4) {
         let padding_needed = 4 - (json_b64.len() % 4);
         format!("{}{}", json_b64, "=".repeat(padding_needed))
     } else {
@@ -348,10 +346,10 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
     result.insert("uuid".to_string(), vmess.id);
 
     // Name
-    if let Some(ps) = vmess.ps {
-        if !ps.is_empty() {
-            result.insert("name".to_string(), ps);
-        }
+    if let Some(ps) = vmess.ps
+        && !ps.is_empty()
+    {
+        result.insert("name".to_string(), ps);
     }
 
     // Network type (default: tcp)
@@ -366,7 +364,9 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
     }
 
     // Handle TLS - only enable if tls is not empty and not "none"
-    let has_tls = vmess.tls.as_ref()
+    let has_tls = vmess
+        .tls
+        .as_ref()
         .map(|t| !t.is_empty() && t != "none")
         .unwrap_or(false);
     if has_tls {
@@ -378,15 +378,15 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
         "ws" => {
             // WebSocket transport
             let mut ws_opts = HashMap::new();
-            if let Some(ref host) = vmess.host {
-                if !host.is_empty() {
-                    ws_opts.insert("Host".to_string(), host.clone());
-                }
+            if let Some(ref host) = vmess.host
+                && !host.is_empty()
+            {
+                ws_opts.insert("Host".to_string(), host.clone());
             }
-            if let Some(ref path) = vmess.path {
-                if !path.is_empty() {
-                    ws_opts.insert("Path".to_string(), path.clone());
-                }
+            if let Some(ref path) = vmess.path
+                && !path.is_empty()
+            {
+                ws_opts.insert("Path".to_string(), path.clone());
             }
             if !ws_opts.is_empty() {
                 result.insert("ws-opts".to_string(), serde_json::to_string(&ws_opts)?);
@@ -395,15 +395,15 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
         "grpc" => {
             // gRPC transport
             let mut grpc_opts = HashMap::new();
-            if let Some(ref path) = vmess.path {
-                if !path.is_empty() {
-                    grpc_opts.insert("grpc-service-name".to_string(), path.clone());
-                }
+            if let Some(ref path) = vmess.path
+                && !path.is_empty()
+            {
+                grpc_opts.insert("grpc-service-name".to_string(), path.clone());
             }
-            if let Some(ref transport_type) = vmess.transport_type {
-                if !transport_type.is_empty() {
-                    grpc_opts.insert("grpc-mode".to_string(), transport_type.clone());
-                }
+            if let Some(ref transport_type) = vmess.transport_type
+                && !transport_type.is_empty()
+            {
+                grpc_opts.insert("grpc-mode".to_string(), transport_type.clone());
             }
             if !grpc_opts.is_empty() {
                 result.insert("grpc-opts".to_string(), serde_json::to_string(&grpc_opts)?);
@@ -412,15 +412,15 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
         "h2" => {
             // HTTP/2 transport
             let mut h2_opts = HashMap::new();
-            if let Some(ref host) = vmess.host {
-                if !host.is_empty() {
-                    h2_opts.insert("Host".to_string(), host.clone());
-                }
+            if let Some(ref host) = vmess.host
+                && !host.is_empty()
+            {
+                h2_opts.insert("Host".to_string(), host.clone());
             }
-            if let Some(ref path) = vmess.path {
-                if !path.is_empty() {
-                    h2_opts.insert("Path".to_string(), path.clone());
-                }
+            if let Some(ref path) = vmess.path
+                && !path.is_empty()
+            {
+                h2_opts.insert("Path".to_string(), path.clone());
             }
             if !h2_opts.is_empty() {
                 result.insert("h2-opts".to_string(), serde_json::to_string(&h2_opts)?);
@@ -428,10 +428,11 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
         }
         _ => {
             // TCP or others - handle host for SNI
-            if let Some(ref host) = vmess.host {
-                if !host.is_empty() && has_tls {
-                    result.insert("sni".to_string(), host.clone());
-                }
+            if let Some(ref host) = vmess.host
+                && !host.is_empty()
+                && has_tls
+            {
+                result.insert("sni".to_string(), host.clone());
             }
         }
     }
@@ -913,7 +914,7 @@ pub fn convert_jms_to_clash(data: &str) -> Result<String> {
 
                 // Get the proxy name for proxy-groups
                 let name = proxy_mapping
-                    .get(&Value::String("name".to_string()))
+                    .get(Value::String("name".to_string()))
                     .and_then(|v| v.as_str())
                     .unwrap_or("unnamed")
                     .to_string();
@@ -956,8 +957,7 @@ pub fn convert_jms_to_clash(data: &str) -> Result<String> {
     config.insert(Value::String("proxy-groups".to_string()), Value::Sequence(proxy_groups));
 
     // Add rules
-    let mut rules: Sequence = Sequence::new();
-    rules.push(Value::String("MATCH,Proxy".to_string()));
+    let rules: Sequence = vec![Value::String("MATCH,Proxy".to_string())];
     config.insert(Value::String("rules".to_string()), Value::Sequence(rules));
 
     // Step 5: Serialize to YAML
@@ -1035,37 +1035,34 @@ pub fn parse_ssr(line: &str) -> Result<HashMap<String, String>> {
                 match key {
                     "remarks" => {
                         // Remarks are base64 encoded
-                        if let Ok(decoded) = BASE64.decode(value) {
-                            if let Ok(name) = String::from_utf8(decoded) {
-                                result.insert("name".to_string(), name);
-                            }
+                        if let Ok(decoded) = BASE64.decode(value)
+                            && let Ok(name) = String::from_utf8(decoded)
+                        {
+                            result.insert("name".to_string(), name);
                         }
                     }
                     "obfsparam" => {
-                        if !value.is_empty() {
-                            if let Ok(decoded) = BASE64.decode(value) {
-                                if let Ok(s) = String::from_utf8(decoded) {
-                                    result.insert("obfs-param".to_string(), s);
-                                }
-                            }
+                        if !value.is_empty()
+                            && let Ok(decoded) = BASE64.decode(value)
+                            && let Ok(s) = String::from_utf8(decoded)
+                        {
+                            result.insert("obfs-param".to_string(), s);
                         }
                     }
                     "protoparam" => {
-                        if !value.is_empty() {
-                            if let Ok(decoded) = BASE64.decode(value) {
-                                if let Ok(s) = String::from_utf8(decoded) {
-                                    result.insert("protocol-param".to_string(), s);
-                                }
-                            }
+                        if !value.is_empty()
+                            && let Ok(decoded) = BASE64.decode(value)
+                            && let Ok(s) = String::from_utf8(decoded)
+                        {
+                            result.insert("protocol-param".to_string(), s);
                         }
                     }
                     "group" => {
-                        if !value.is_empty() {
-                            if let Ok(decoded) = BASE64.decode(value) {
-                                if let Ok(s) = String::from_utf8(decoded) {
-                                    result.insert("group".to_string(), s);
-                                }
-                            }
+                        if !value.is_empty()
+                            && let Ok(decoded) = BASE64.decode(value)
+                            && let Ok(s) = String::from_utf8(decoded)
+                        {
+                            result.insert("group".to_string(), s);
                         }
                     }
                     _ => {}
@@ -1078,6 +1075,7 @@ pub fn parse_ssr(line: &str) -> Result<HashMap<String, String>> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::unnecessary_get_then_check)]
 mod tests {
     use super::*;
 
@@ -1479,7 +1477,8 @@ mod tests {
         let parsed: serde_yaml_ng::Mapping = serde_yaml_ng::from_str(&yaml).unwrap();
 
         // Check number of proxies (should have at least 2 SS)
-        let proxies = parsed.get(&serde_yaml_ng::Value::String("proxies".to_string()))
+        let proxies = parsed
+            .get(serde_yaml_ng::Value::String("proxies".to_string()))
             .and_then(|v| v.as_sequence())
             .unwrap();
         assert!(proxies.len() >= 2, "Expected at least 2 proxies");
