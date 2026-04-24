@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use anyhow::{Result, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json;
-use serde_yaml_ng::{Mapping, Value, Sequence};
+use serde_yaml_ng::{Mapping, Sequence, Value};
 
 /// Decode Base64 if the data appears to be encoded
 /// Returns decoded string if successful, otherwise returns original
@@ -245,7 +245,8 @@ struct VmessJson {
     path: Option<String>,
     /// Proxy name
     ps: Option<String>,
-    /// Server port
+    /// Server port (can be string or number in VMess JSON)
+    #[serde(deserialize_with = "deserialize_port")]
     port: u16,
     /// Security method (auto, aes-128-gcm, etc.)
     scy: Option<String>,
@@ -256,6 +257,58 @@ struct VmessJson {
     /// gRPC transport type (multi/gun)
     #[serde(rename = "type")]
     transport_type: Option<String>,
+}
+
+/// Custom deserializer for port that accepts both string and number
+fn deserialize_port<'de, D>(deserializer: D) -> std::result::Result<u16, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+
+    struct PortVisitor;
+
+    impl<'de> Visitor<'de> for PortVisitor {
+        type Value = u16;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a port number or string")
+        }
+
+        fn visit_u16<E>(self, v: u16) -> std::result::Result<u16, E>
+        where
+            E: de::Error,
+        {
+            Ok(v)
+        }
+
+        fn visit_u64<E>(self, v: u64) -> std::result::Result<u16, E>
+        where
+            E: de::Error,
+        {
+            if v <= u16::MAX as u64 {
+                Ok(v as u16)
+            } else {
+                Err(E::custom("port number too large"))
+            }
+        }
+
+        fn visit_str<E>(self, v: &str) -> std::result::Result<u16, E>
+        where
+            E: de::Error,
+        {
+            v.parse::<u16>().map_err(E::custom)
+        }
+
+        fn visit_string<E>(self, v: String) -> std::result::Result<u16, E>
+        where
+            E: de::Error,
+        {
+            v.parse::<u16>().map_err(E::custom)
+        }
+    }
+
+    deserializer.deserialize_any(PortVisitor)
 }
 
 /// Parse VMess URL
@@ -274,8 +327,16 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
     // Get the base64-encoded JSON after vmess://
     let json_b64 = &line[8..];
 
+    // Add padding if needed (VMess links often have missing padding)
+    let json_b64_padded = if json_b64.len() % 4 != 0 {
+        let padding_needed = 4 - (json_b64.len() % 4);
+        format!("{}{}", json_b64, "=".repeat(padding_needed))
+    } else {
+        json_b64.to_string()
+    };
+
     // Decode base64
-    let json_bytes = BASE64.decode(json_b64)?;
+    let json_bytes = BASE64.decode(&json_b64_padded)?;
     let json_str = String::from_utf8(json_bytes)?;
 
     // Parse JSON
@@ -304,8 +365,10 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
         result.insert("cipher".to_string(), "auto".to_string());
     }
 
-    // Handle TLS
-    let has_tls = vmess.tls.as_ref().map(|t| !t.is_empty()).unwrap_or(false);
+    // Handle TLS - only enable if tls is not empty and not "none"
+    let has_tls = vmess.tls.as_ref()
+        .map(|t| !t.is_empty() && t != "none")
+        .unwrap_or(false);
     if has_tls {
         result.insert("tls".to_string(), "true".to_string());
     }
@@ -840,9 +903,8 @@ pub fn convert_jms_to_clash(data: &str) -> Result<String> {
                         }
                     } else if key == "alpn" {
                         // alpn should be a sequence
-                        let alpn_list: Sequence = value.split(',')
-                            .map(|s| Value::String(s.trim().to_string()))
-                            .collect();
+                        let alpn_list: Sequence =
+                            value.split(',').map(|s| Value::String(s.trim().to_string())).collect();
                         proxy_mapping.insert(Value::String(key), Value::Sequence(alpn_list));
                     } else {
                         proxy_mapping.insert(Value::String(key), Value::String(value));
@@ -850,7 +912,8 @@ pub fn convert_jms_to_clash(data: &str) -> Result<String> {
                 }
 
                 // Get the proxy name for proxy-groups
-                let name = proxy_mapping.get(&Value::String("name".to_string()))
+                let name = proxy_mapping
+                    .get(&Value::String("name".to_string()))
                     .and_then(|v| v.as_str())
                     .unwrap_or("unnamed")
                     .to_string();
@@ -884,9 +947,7 @@ pub fn convert_jms_to_clash(data: &str) -> Result<String> {
     proxy_group.insert(Value::String("name".to_string()), Value::String("Proxy".to_string()));
     proxy_group.insert(Value::String("type".to_string()), Value::String("select".to_string()));
 
-    let mut group_proxies: Sequence = proxy_names.iter()
-        .map(|n| Value::String(n.clone()))
-        .collect();
+    let mut group_proxies: Sequence = proxy_names.iter().map(|n| Value::String(n.clone())).collect();
     group_proxies.push(Value::String("DIRECT".to_string()));
     proxy_group.insert(Value::String("proxies".to_string()), Value::Sequence(group_proxies));
 
@@ -1223,7 +1284,8 @@ mod tests {
 
     #[test]
     fn test_parse_hysteria2_with_obfs() {
-        let line = "hy2://password123@1.2.3.4:443?sni=www.google.com&obfs=salamander&obfs-password=obfspass#TestHysteria2Obfs";
+        let line =
+            "hy2://password123@1.2.3.4:443?sni=www.google.com&obfs=salamander&obfs-password=obfspass#TestHysteria2Obfs";
         let result = parse_hysteria2(line).unwrap();
         assert_eq!(result["obfs"], "salamander");
         assert_eq!(result["obfs-password"], "obfspass");
@@ -1375,5 +1437,51 @@ mod tests {
         // Invalid lines should not appear
         assert!(!yaml.contains("unknown"));
         assert!(!yaml.contains("invalid"));
+    }
+
+    #[test]
+    fn test_convert_real_jms_subscription() {
+        // Real JMS subscription content (Base64 encoded)
+        let encoded_data = "c3M6Ly9ZV1Z6TFRJMU5pMW5ZMjA2YUhneU5FczJjRzFUVjI1NVFsUnpSRUF4TURRdU1UWXdMalExTGpFNU5qbzVPVGs0I0pNUy0xMjYzNTQzQGM3NnMxLnBvcnRhYmxlc3VibWFyaW5lcy5jb206OTk5OApzczovL1lXVnpMVEkxTmkxblkyMDZhSGd5TkVzMmNHMVRWMjU1UWxSelJFQXhNRFF1TVRZd0xqUXpMakV3TWpvNU9UazQjSk1TLTEyNjM1NDNAYzc2czIucG9ydGFibGVzdWJtYXJpbmVzLmNvbTo5OTk4CnZtZXNzOi8vZXlKd2N5STZJa3BOVXkweE1qWXpOVFF6UUdNM05uTXpMbkJ2Y25SaFlteGxjM1ZpYldGeWFXNWxjeTVqYjIwNk9UazVPQ0lzSW5CdmNuUWlPaUk1T1RrNElpd2lhV1FpT2lJeE9ESTBNelU0TmkwMFlUWTBMVFE0Tm1FdE9UQTJNaTFsT0RGalptWTRaVFl4TnpjaUxDSmhhV1FpT2pBc0ltNWxkQ0k2SW5SamNDSXNJblI1Y0dVaU9pSnViMjVsSWl3aWRHeHpJam9pYm05dVpTSXNJbUZrWkNJNklqRTVPQzR6TlM0ME5pNHhNeklpZlEKdm1lc3M6Ly9leUp3Y3lJNklrcE5VeTB4TWpZek5UUXpRR00zTm5NMExuQnZjblJoWW14bGMzVmliV0Z5YVc1bGN5NWpiMjA2T1RrNU9DSXNJbkJ2Y25RaU9pSTVPVGs0SWl3aWFXUWlPaUl4T0RJME16VTROaTAwWVRZMExUUTRObUV0T1RBMk1pMWxPREZqWm1ZNFpUWXhOemNpTENKaGFXUWlPakFzSW01bGRDSTZJblJqY0NJc0luUjVjR1VpT2lKdWIyNWxJaXdpZEd4eklqb2libTl1WlNJc0ltRmtaQ0k2SWpJeE1pNDFNQzR5TlRBdU1qUTNJbjAKdm1lc3M6Ly9leUp3Y3lJNklrcE5VeTB4TWpZek5UUXpRR00zTm5NMUxuQnZjblJoWW14bGMzVmliV0Z5YVc1bGN5NWpiMjA2T1RrNU9DSXNJbkJ2Y25RaU9pSTVPVGs0SWl3aWFXUWlPaUl4T0RJME16VTROaTAwWVRZMExUUTRObUV0T1RBMk1pMWxPREZqWm1ZNFpUWXhOemNpTENKaGFXUWlPakFzSW01bGRDSTZJblJqY0NJc0luUjVjR1VpT2lKdWIyNWxJaXdpZEd4eklqb2libTl1WlNJc0ltRmtaQ0k2SWpFMk1pNHlORGd1TnpRdU56Y2lmUQp2bWVzczovL2V5SndjeUk2SWtwTlV5MHhNall6TlRRelFHTTNObk00TURFdWNHOXlkR0ZpYkdWemRXSnRZWEpwYm1WekxtTnZiVG81T1RrNElpd2ljRzl5ZENJNklqazVPVGdpTENKcFpDSTZJakU0TWpRek5UZzJMVFJoTmpRdE5EZzJZUzA1TURZeUxXVTRNV05tWmpobE5qRTNOeUlzSW1GcFpDSTZNQ3dpYm1WMElqb2lkR053SWl3aWRIbHdaU0k2SW01dmJtVWlMQ0owYkhNaU9pSnViMjVsSWl3aVlXUmtJam9pTWpFeUxqVXdMakl5T1M0eE1ETWlmUQ==";
+
+        // Decode the Base64 subscription
+        let decoded = base64::engine::general_purpose::STANDARD.decode(encoded_data).unwrap();
+        let data = String::from_utf8(decoded).unwrap();
+
+        // First test individual VMess parsing
+        let vmess_line = "vmess://eyJwcyI6IkpNUy0xMjYzNTQzQGM3NnMzLnBvcnRhYmxlc3VibWFyaW5lcy5jb206OTk5OCIsInBvcnQiOiI5OTk4IiwiaWQiOiIxODI0MzU4Ni00YTY0LTQ4NmEtOTA2Mi1lODFjZmY4ZTYxNzciLCJhaWQiOjAsIm5ldCI6InRjcCIsInR5cGUiOiJub25lIiwidGxzIjoibm9uZSIsImFkZCI6IjE5OC4zNS40Ni4xMzIifQ";
+        let vmess_result = parse_vmess(vmess_line);
+        println!("VMess parse result: {:?}", vmess_result);
+
+        // Convert to Clash YAML
+        let yaml = convert_jms_to_clash(&data).unwrap();
+
+        // Print YAML for debugging
+        println!("Generated YAML:\n{}", yaml);
+
+        // Verify the output contains proxies
+        assert!(yaml.contains("proxies:"));
+        assert!(yaml.contains("proxy-groups:"));
+        assert!(yaml.contains("rules:"));
+
+        // Check SS proxies are parsed
+        assert!(yaml.contains("type: ss"));
+        assert!(yaml.contains("cipher: aes-256-gcm"));
+        assert!(yaml.contains("port:"));
+
+        // Check node names
+        assert!(yaml.contains("JMS-1263543"));
+
+        // Check proxy group contains DIRECT
+        assert!(yaml.contains("- DIRECT"));
+
+        // Verify it's valid YAML by parsing it
+        let parsed: serde_yaml_ng::Mapping = serde_yaml_ng::from_str(&yaml).unwrap();
+
+        // Check number of proxies (should have at least 2 SS)
+        let proxies = parsed.get(&serde_yaml_ng::Value::String("proxies".to_string()))
+            .and_then(|v| v.as_sequence())
+            .unwrap();
+        assert!(proxies.len() >= 2, "Expected at least 2 proxies");
     }
 }
