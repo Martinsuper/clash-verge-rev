@@ -1,8 +1,7 @@
 use crate::{
     config::profiles,
     utils::{
-        dirs, help,
-        jms_converter,
+        dirs, help, jms_converter,
         network::{NetworkManager, ProxyType},
         tmpl,
     },
@@ -396,11 +395,13 @@ impl PrfItem {
                 match jms_converter::convert_jms_to_clash(data) {
                     Ok(converted) => {
                         log::info!(target: "app", "JMS subscription converted successfully");
-                        serde_yaml_ng::from_str(&converted)
-                            .context("JMS conversion produced invalid YAML")?
+                        serde_yaml_ng::from_str(&converted).context("JMS conversion produced invalid YAML")?
                     }
                     Err(e) => {
-                        bail!("profile does not contain `proxies` or `proxy-providers` and JMS conversion failed: {}", e);
+                        bail!(
+                            "profile does not contain `proxies` or `proxy-providers` and JMS conversion failed: {}",
+                            e
+                        );
                     }
                 }
             }
@@ -410,11 +411,13 @@ impl PrfItem {
                 match jms_converter::convert_jms_to_clash(data) {
                     Ok(converted) => {
                         log::info!(target: "app", "JMS subscription converted successfully");
-                        serde_yaml_ng::from_str(&converted)
-                            .context("JMS conversion produced invalid YAML")?
+                        serde_yaml_ng::from_str(&converted).context("JMS conversion produced invalid YAML")?
                     }
                     Err(e) => {
-                        bail!("the remote profile data is neither valid Clash YAML nor valid JMS format: {}", e);
+                        bail!(
+                            "the remote profile data is neither valid Clash YAML nor valid JMS format: {}",
+                            e
+                        );
                     }
                 }
             }
