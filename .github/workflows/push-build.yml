@@ -144,13 +144,23 @@ jobs:
       - name: Release PushBuild Version
         run: pnpm release-version autobuild-latest
 
+      - name: Disable updater signing for forks
+        if: ${{ secrets.TAURI_PRIVATE_KEY == '' }}
+        run: |
+          # Forks without TAURI signing secrets: disable updater artifacts creation
+          # to avoid 'failed to decode secret key' error
+          jq '.bundle.createUpdaterArtifacts = false' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+
       - name: Tauri build
         uses: tauri-apps/tauri-action@v0
         env:
           NODE_OPTIONS: '--max_old_space_size=4096'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          # Only set TAURI signing env vars if secrets are configured
+          # Forks without these secrets will build unsigned updater artifacts
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD || '' }}
         with:
           tagName: ${{ env.TAG_NAME }}
           releaseName: 'Clash Verge Rev ${{ env.TAG_CHANNEL }}'
