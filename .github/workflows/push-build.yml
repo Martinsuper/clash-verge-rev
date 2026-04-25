@@ -156,11 +156,12 @@ jobs:
 
       - name: Disable updater signing for forks
         if: steps.check-secrets.outputs.has_secrets == 'false'
+        shell: bash
         run: |
           # Forks without TAURI signing secrets: disable updater artifacts creation
           # to avoid 'failed to decode secret key' error
           jq '.bundle.createUpdaterArtifacts = false' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
-          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+          mv -f src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
 
       - name: Tauri build
         uses: tauri-apps/tauri-action@v0
