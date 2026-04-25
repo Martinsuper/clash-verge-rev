@@ -144,8 +144,18 @@ jobs:
       - name: Release PushBuild Version
         run: pnpm release-version autobuild-latest
 
+      - name: Check if TAURI secrets available
+        id: check-secrets
+        run: |
+          if [ -n "${{ secrets.TAURI_PRIVATE_KEY }}" ]; then
+            echo "has_secrets=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_secrets=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
       - name: Disable updater signing for forks
-        if: ${{ secrets.TAURI_PRIVATE_KEY == '' }}
+        if: steps.check-secrets.outputs.has_secrets == 'false'
         run: |
           # Forks without TAURI signing secrets: disable updater artifacts creation
           # to avoid 'failed to decode secret key' error
