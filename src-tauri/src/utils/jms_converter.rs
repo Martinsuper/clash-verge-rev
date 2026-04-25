@@ -345,6 +345,9 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
     result.insert("port".to_string(), vmess.port.to_string());
     result.insert("uuid".to_string(), vmess.id);
 
+    // AlterId (required by Mihomo, default 0)
+    result.insert("alterId".to_string(), vmess.aid.unwrap_or(0).to_string());
+
     // Name
     if let Some(ps) = vmess.ps
         && !ps.is_empty()
@@ -1145,6 +1148,7 @@ mod tests {
         assert_eq!(result["server"], "1.2.3.4");
         assert_eq!(result["port"], "443");
         assert_eq!(result["uuid"], "uuid");
+        assert_eq!(result["alterId"], "0");
     }
 
     #[test]
