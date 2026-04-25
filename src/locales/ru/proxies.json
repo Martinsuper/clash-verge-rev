@@ -10,7 +10,8 @@
       "connect": "Подключиться",
       "disconnect": "Отключиться",
       "connecting": "Подключение...",
-      "clearChainConfig": "Очистить цепочку"
+      "clearChainConfig": "Очистить цепочку",
+      "updateProfile": "Update Profile"
     },
     "provider": {
       "title": "Провайдеры прокси",
@@ -69,6 +70,10 @@
         "genericError": "Ошибка обновления: {{message}}",
         "none": "Нет доступных провайдеров для обновления",
         "allUpdated": "Все провайдеры успешно обновлены"
+      },
+      "profile": {
+        "updateSuccess": "Profile updated successfully",
+        "updateFailed": "Failed to update profile: {{message}}"
       }
     }
   },

@@ -10,7 +10,8 @@
       "connect": "연결",
       "disconnect": "연결 해제",
       "connecting": "연결 중...",
-      "clearChainConfig": "체인 구성 삭제"
+      "clearChainConfig": "체인 구성 삭제",
+      "updateProfile": "Update Profile"
     },
     "provider": {
       "title": "프록시 제공자",
@@ -69,6 +70,10 @@
         "genericError": "업데이트 실패: {{message}}",
         "none": "업데이트할 제공자가 없습니다",
         "allUpdated": "모든 제공자가 업데이트되었습니다"
+      },
+      "profile": {
+        "updateSuccess": "Profile updated successfully",
+        "updateFailed": "Failed to update profile: {{message}}"
       }
     }
   },

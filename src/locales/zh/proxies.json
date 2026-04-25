@@ -10,7 +10,8 @@
       "connect": "连接",
       "disconnect": "断开",
       "connecting": "连接中...",
-      "clearChainConfig": "删除链式配置"
+      "clearChainConfig": "删除链式配置",
+      "updateProfile": "更新订阅"
     },
     "provider": {
       "title": "代理集合",
@@ -69,6 +70,10 @@
         "genericError": "更新失败: {{message}}",
         "none": "没有可更新的 provider",
         "allUpdated": "所有 provider 均已更新"
+      },
+      "profile": {
+        "updateSuccess": "订阅更新成功",
+        "updateFailed": "订阅更新失败: {{message}}"
       }
     }
   },

@@ -10,7 +10,8 @@
       "connect": "Connect",
       "disconnect": "Disconnect",
       "connecting": "Connecting...",
-      "clearChainConfig": "Delete Chain Config"
+      "clearChainConfig": "Delete Chain Config",
+      "updateProfile": "Update Profile"
     },
     "provider": {
       "title": "プロキシプロバイダー",
@@ -69,6 +70,10 @@
         "genericError": "Update failed: {{message}}",
         "none": "No providers available to update",
         "allUpdated": "All providers updated successfully"
+      },
+      "profile": {
+        "updateSuccess": "Profile updated successfully",
+        "updateFailed": "Failed to update profile: {{message}}"
       }
     }
   },

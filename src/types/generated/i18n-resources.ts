@@ -411,6 +411,10 @@ export interface TranslationResources {
       }
       feedback: {
         notifications: {
+          profile: {
+            updateFailed: string
+            updateSuccess: string
+          }
           provider: {
             allUpdated: string
             genericError: string
@@ -427,6 +431,7 @@ export interface TranslationResources {
           connecting: string
           disconnect: string
           toggleChain: string
+          updateProfile: string
         }
         chain: {
           connectFailed: string
