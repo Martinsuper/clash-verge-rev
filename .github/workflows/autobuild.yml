@@ -1,10 +1,9 @@
 name: Auto Build
 
 on:
-  workflow_dispatch:
-  schedule:
-    # UTC+8 12:00, 18:00 -> UTC 4:00, 10:00
-    - cron: '0 4,10 * * *'
+  push:
+    branches:
+      - main
 permissions: write-all
 env:
   TAG_NAME: autobuild
@@ -19,7 +18,7 @@ concurrency:
 jobs:
   check_commit:
     name: Check Commit Needs Build
-    uses: clash-verge-rev/clash-verge-rev/.github/workflows/check-commit-needs-build.yml@dev
+    uses: ./.github/workflows/check-commit-needs-build.yml
     with:
       tag_name: autobuild
       force_build: ${{ github.event_name == 'workflow_dispatch' }}
@@ -77,10 +76,10 @@ jobs:
 
           ### Windows (不再支持Win7)
           #### 正常版本(推荐)
-          - [64位(常用)](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_x64-setup.exe) | [ARM64(不常用)](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_arm64-setup.exe)
+          - [64位(常用)](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_x64.exe) | [ARM64(不常用)](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_arm64.exe)
 
           #### 内置Webview2版(体积较大，仅在企业版系统或无法安装webview2时使用)
-          - [64位](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_x64_fixed_webview2-setup.exe) | [ARM64](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_arm64_fixed_webview2-setup.exe)
+          - [64位](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_x64_webview2.exe) | [ARM64](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_arm64_webview2.exe)
 
           ### macOS
           - [Apple M芯片](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_aarch64.dmg) | [Intel芯片](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_x64.dmg)
@@ -116,7 +115,7 @@ jobs:
     needs: [check_commit, update_tag]
     if: ${{ needs.check_commit.outputs.should_run == 'true' && needs.update_tag.result == 'success' }}
 
-    uses: clash-verge-rev/clash-verge-rev/.github/workflows/clean-old-assets.yml@dev
+    uses: ./.github/workflows/clean-old-assets.yml
     with:
       tag_name: autobuild
       dry_run: false
@@ -235,6 +234,21 @@ jobs:
           tauriScript: pnpm
           args: --target ${{ matrix.target }}
           # includeUpdaterJson: true
+
+      - name: Rename Windows files
+        if: matrix.os == 'windows-latest'
+        run: |
+          $files = Get-ChildItem ".\target\${{ matrix.target }}\release\bundle\nsis\*-setup.exe"
+          foreach ($file in $files) {
+            $newName = $file.Name -replace "-setup\.exe$", ".exe"
+            Rename-Item $file.FullName $newName
+          }
+
+          $files = Get-ChildItem ".\target\${{ matrix.target }}\release\bundle\nsis\*-setup.exe.sig"
+          foreach ($file in $files) {
+            $newName = $file.Name -replace "-setup\.exe\.sig$", ".exe.sig"
+            Rename-Item $file.FullName $newName
+          }
 
   autobuild-arm-linux:
     name: Autobuild ARM Linux
@@ -480,19 +494,19 @@ jobs:
         run: |
           $files = Get-ChildItem ".\target\${{ matrix.target }}\release\bundle\nsis\*-setup.exe"
           foreach ($file in $files) {
-            $newName = $file.Name -replace "-setup\.exe$", "_fixed_webview2-setup.exe"
+            $newName = $file.Name -replace "-setup\.exe$", "_webview2.exe"
             Rename-Item $file.FullName $newName
           }
 
           $files = Get-ChildItem ".\target\${{ matrix.target }}\release\bundle\nsis\*.nsis.zip"
           foreach ($file in $files) {
-            $newName = $file.Name -replace "-setup\.nsis\.zip$", "_fixed_webview2-setup.nsis.zip"
+            $newName = $file.Name -replace "-setup\.nsis\.zip$", "_webview2.nsis.zip"
             Rename-Item $file.FullName $newName
           }
 
           $files = Get-ChildItem ".\target\${{ matrix.target }}\release\bundle\nsis\*-setup.exe.sig"
           foreach ($file in $files) {
-            $newName = $file.Name -replace "-setup\.exe\.sig$", "_fixed_webview2-setup.exe.sig"
+            $newName = $file.Name -replace "-setup\.exe\.sig$", "_webview2.exe.sig"
             Rename-Item $file.FullName $newName
           }
 
@@ -503,7 +517,7 @@ jobs:
           name: 'Clash Verge Rev ${{ env.TAG_CHANNEL }}'
           prerelease: true
           token: ${{ secrets.GITHUB_TOKEN }}
-          files: target/${{ matrix.target }}/release/bundle/nsis/*setup*
+          files: target/${{ matrix.target }}/release/bundle/nsis/*.exe
 
       - name: Portable Bundle
         run: pnpm portable-fixed-webview2 ${{ matrix.target }} --${{ env.TAG_NAME }}
@@ -569,10 +583,10 @@ jobs:
 
           ### Windows (不再支持Win7)
           #### 正常版本(推荐)
-          - [64位(常用)](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_x64-setup.exe) | [ARM64(不常用)](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_arm64-setup.exe)
+          - [64位(常用)](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_x64.exe) | [ARM64(不常用)](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_arm64.exe)
 
           #### 内置Webview2版(体积较大，仅在企业版系统或无法安装webview2时使用)
-          - [64位](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_x64_fixed_webview2-setup.exe) | [ARM64](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_arm64_fixed_webview2-setup.exe)
+          - [64位](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_x64_webview2.exe) | [ARM64](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_arm64_webview2.exe)
 
           ### macOS
           - [Apple M芯片](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_aarch64.dmg) | [Intel芯片](${{ env.DOWNLOAD_URL }}/Clash.Verge_${{ env.VERSION }}_x64.dmg)
