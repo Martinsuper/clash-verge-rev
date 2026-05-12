@@ -1,5 +1,5 @@
-import { LanOutlined, LanRounded, RefreshRounded } from '@mui/icons-material'
-import { Box, Button, ButtonGroup, IconButton } from '@mui/material'
+import { LanOutlined, LanRounded } from '@mui/icons-material'
+import { Box, Button, ButtonGroup } from '@mui/material'
 import { useLockFn } from 'ahooks'
 import { useCallback, useEffect, useReducer, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -8,16 +8,16 @@ import { closeAllConnections } from 'tauri-plugin-mihomo-api'
 import { BasePage } from '@/components/base'
 import { ProviderButton } from '@/components/proxy/provider-button'
 import { ProxyGroups } from '@/components/proxy/proxy-groups'
-import { useProfiles } from '@/hooks/use-profiles'
 import { useVerge } from '@/hooks/use-verge'
-import { useAppData } from '@/providers/app-data-context'
+import {
+  useAppRefreshers,
+  useClashConfigData,
+} from '@/providers/app-data-context'
 import {
   getRuntimeProxyChainConfig,
   patchClashMode,
-  updateProfile,
   updateProxyChainConfigInRuntime,
 } from '@/services/cmds'
-import { showNotice } from '@/services/notice-service'
 import { debugLog } from '@/utils/debug'
 
 const MODES = ['rule', 'global', 'direct'] as const
@@ -28,8 +28,6 @@ const isMode = (value: unknown): value is Mode =>
 
 const ProxyPage = () => {
   const { t } = useTranslation()
-  const { current, mutateProfiles } = useProfiles()
-  const [updatingProfile, setUpdatingProfile] = useState(false)
 
   // 从 localStorage 恢复链式代理按钮状态
   const [isChainMode, setIsChainMode] = useState(() => {
@@ -46,7 +44,8 @@ const ProxyPage = () => {
     null as string | null,
   )
 
-  const { clashConfig, refreshClashConfig } = useAppData()
+  const { clashConfig } = useClashConfigData()
+  const { refreshClashConfig } = useAppRefreshers()
 
   const updateChainConfigData = useCallback((value: string | null) => {
     dispatchChainConfigData(value)
@@ -81,23 +80,6 @@ const ProxyPage = () => {
       } catch (error) {
         console.error('Failed to clear chain configuration:', error)
       }
-    }
-  })
-
-  const onUpdateCurrentProfile = useLockFn(async () => {
-    if (!current?.uid || updatingProfile) return
-
-    setUpdatingProfile(true)
-    try {
-      await updateProfile(current.uid, { with_proxy: true })
-      showNotice.success('proxies.feedback.notifications.profile.updateSuccess')
-      await mutateProfiles()
-    } catch (err) {
-      showNotice.error('proxies.feedback.notifications.profile.updateFailed', {
-        message: String(err),
-      })
-    } finally {
-      setUpdatingProfile(false)
     }
   })
 
@@ -159,25 +141,6 @@ const ProxyPage = () => {
       header={
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <ProviderButton />
-
-          {current?.uid && (
-            <IconButton
-              size="small"
-              color="inherit"
-              title={t('proxies.page.actions.updateProfile')}
-              disabled={updatingProfile}
-              onClick={onUpdateCurrentProfile}
-              sx={{
-                animation: updatingProfile ? 'spin 1s linear infinite' : 'none',
-                '@keyframes spin': {
-                  '0%': { transform: 'rotate(0deg)' },
-                  '100%': { transform: 'rotate(360deg)' },
-                },
-              }}
-            >
-              <RefreshRounded />
-            </IconButton>
-          )}
 
           <ButtonGroup size="small">
             {MODES.map((mode) => (
