@@ -30,6 +30,5 @@ jobs:
           toolchain: stable
 
       - name: Run Cargo Audit
-        uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.WORKFLOW_AUDIT_TOKEN }}
+        run: cargo audit --deny warnings
+        working-directory: ./src-tauri

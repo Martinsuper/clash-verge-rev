@@ -8,7 +8,9 @@ on:
     # -rc tag 时预览发布, 跳过 telegram 通知、跳过 winget 提交、跳过 latest.json 文件更新
     tags:
       - 'v*.*.*'
-permissions: write-all
+permissions:
+  contents: write
+  actions: read
 env:
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: short
@@ -16,7 +18,7 @@ env:
 concurrency:
   # only allow per workflow per commit (and not pr) to run at a time
   group: '${{ github.workflow }} - ${{ github.head_ref || github.ref }}'
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
 
 jobs:
   check_tag_version:
@@ -189,7 +191,7 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: true
           prefix-key: 'v1-rust'
           key: 'rust-shared-stable-${{ matrix.os }}-${{ matrix.target }}'
           workspaces: |
@@ -224,7 +226,7 @@ jobs:
 
       - name: Pnpm install and check
         run: |
-          pnpm i
+          pnpm install --frozen-lockfile
           pnpm run prebuild ${{ matrix.target }}
 
       - name: Add Rust Target
@@ -323,7 +325,7 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: true
           prefix-key: 'v1-rust'
           key: 'rust-shared-stable-${{ matrix.os }}-${{ matrix.target }}'
           workspaces: |
@@ -343,7 +345,7 @@ jobs:
 
       - name: Pnpm install and check
         run: |
-          pnpm i
+          pnpm install --frozen-lockfile
           pnpm run prebuild ${{ matrix.target }}
 
       - name: 'Setup for linux'
@@ -470,7 +472,7 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: true
           prefix-key: 'v1-rust'
           key: 'rust-shared-stable-${{ matrix.os }}-${{ matrix.target }}'
           workspaces: |
@@ -490,7 +492,7 @@ jobs:
 
       - name: Pnpm install and check
         run: |
-          pnpm i
+          pnpm install --frozen-lockfile
           pnpm run prebuild ${{ matrix.target }}
 
       - name: Download WebView2 Runtime
@@ -518,6 +520,7 @@ jobs:
         with:
           tauriScript: pnpm
           args: --target ${{ matrix.target }}
+          includeUpdaterJson: true
 
       - name: Rename
         run: |
@@ -629,7 +632,7 @@ jobs:
           sudo apt-get install jq
           echo "VERSION=$(cat package.json | jq '.version' | tr -d '"')" >> $GITHUB_ENV
       - name: Submit to Winget
-        uses: vedantmgoyal9/winget-releaser@main
+        uses: vedantmgoyal9/winget-releaser@v2
         with:
           identifier: ClashVergeRev.ClashVergeRev
           version: ${{env.VERSION}}

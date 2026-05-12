@@ -74,7 +74,7 @@ jobs:
 
       - name: Run Clippy
         working-directory: ./src-tauri
-        run: cargo clippy-all
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run Logging Check
         working-directory: ./src-tauri

@@ -16,7 +16,8 @@ on:
           - release
           - autobuild
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   notify-telegram:
