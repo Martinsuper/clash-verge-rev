@@ -1,7 +1,6 @@
 name: Auto Build
 
 on:
-on:
   push:
     branches:
       - main
