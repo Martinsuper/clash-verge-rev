@@ -21,7 +21,7 @@ jobs:
     uses: ./.github/workflows/check-commit-needs-build.yml
     with:
       tag_name: autobuild
-      force_build: ${{ github.event_name == 'workflow_dispatch' }}
+      force_build: true
 
   update_tag:
     name: Update tag
@@ -58,7 +58,7 @@ jobs:
           echo "BUILDTIME=$(TZ=Asia/Shanghai date)" >> $GITHUB_ENV
           VERSION=$(jq -r .version package.json)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "DOWNLOAD_URL=https://github.com/clash-verge-rev/clash-verge-rev/releases/download/autobuild" >> $GITHUB_ENV
+          echo "DOWNLOAD_URL=https://github.com/${{ github.repository }}/releases/download/autobuild" >> $GITHUB_ENV
         shell: bash
 
       - run: |
@@ -564,7 +564,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install jq
           echo "VERSION=$(cat package.json | jq '.version' | tr -d '"')" >> $GITHUB_ENV
-          echo "DOWNLOAD_URL=https://github.com/clash-verge-rev/clash-verge-rev/releases/download/autobuild" >> $GITHUB_ENV
+          echo "DOWNLOAD_URL=https://github.com/${{ github.repository }}/releases/download/autobuild" >> $GITHUB_ENV
           echo "BUILDTIME=$(TZ=Asia/Shanghai date)" >> $GITHUB_ENV
 
       - name: Generate release.txt
