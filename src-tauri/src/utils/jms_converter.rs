@@ -665,17 +665,16 @@ pub fn parse_vless(line: &str) -> Result<HashMap<String, String>> {
                     result.insert("grpc-opts".to_string(), serde_json::to_string(&grpc_opts)?);
                 }
             }
-            "pbk" => {
+            "pbk" if has_reality => {
                 // Public key for Reality
-                if has_reality {
-                    let mut reality_opts = HashMap::new();
-                    reality_opts.insert("PublicKey".to_string(), value.to_string());
-                    if let Some(sid) = url.query_pairs().find(|(k, _)| k == "sid") {
-                        reality_opts.insert("ShortID".to_string(), sid.1.to_string());
-                    }
-                    result.insert("reality-opts".to_string(), serde_json::to_string(&reality_opts)?);
+                let mut reality_opts = HashMap::new();
+                reality_opts.insert("PublicKey".to_string(), value.to_string());
+                if let Some(sid) = url.query_pairs().find(|(k, _)| k == "sid") {
+                    reality_opts.insert("ShortID".to_string(), sid.1.to_string());
                 }
+                result.insert("reality-opts".to_string(), serde_json::to_string(&reality_opts)?);
             }
+            "pbk" => {}
             "sid" => {
                 // Short ID for Reality - handled with pbk
             }
@@ -824,12 +823,11 @@ pub fn parse_hysteria2(line: &str) -> Result<HashMap<String, String>> {
             "obfs-password" => {
                 result.insert("obfs-password".to_string(), value.to_string());
             }
-            "insecure" => {
+            "insecure" if (value == "1" || value == "true") => {
                 // Convert "1" or "true" to "true"
-                if value == "1" || value == "true" {
-                    result.insert("skip-cert-verify".to_string(), "true".to_string());
-                }
+                result.insert("skip-cert-verify".to_string(), "true".to_string());
             }
+            "insecure" => {}
             _ => {}
         }
     }
