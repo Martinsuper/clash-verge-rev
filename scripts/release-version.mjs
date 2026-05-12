@@ -8,8 +8,8 @@
  *   - A full semver version (e.g., 1.2.3, v1.2.3, 1.2.3-beta, v1.2.3+build)
  *   - A tag: "alpha", "beta", "rc", "autobuild", "autobuild-latest", or "deploytest"
  *     - "alpha", "beta", "rc": Appends the tag to the current base version (e.g., 1.2.3-beta)
- *     - "autobuild": Appends date and commit as build metadata (e.g., 1.2.3+0425.a1b2c3d)
- *     - "autobuild-latest": Same as autobuild, using latest Tauri commit
+ *     - "autobuild": Appends a timestamped autobuild tag (e.g., 1.2.3+autobuild.2406101530)
+ *     - "autobuild-latest": Appends an autobuild tag with latest Tauri commit (e.g., 1.2.3+autobuild.0614.a1b2c3d)
  *     - "deploytest": Appends a timestamped deploytest tag (e.g., 1.2.3+deploytest.2406101530)
  *
  * Examples:
@@ -104,17 +104,13 @@ function generateShortTimestamp(withCommit = false, useTauriCommit = false) {
 
 /**
  * 验证版本号格式
- * 支持标准 semver 以及 autobuild 格式 (如 2.4.8.0425.30e2b16)
  * @param {string} version
  * @returns {boolean}
  */
 function isValidVersion(version) {
-  // 标准 semver: v1.2.3, 1.2.3-beta, 1.2.3+build
-  const semverPattern =
-    /^v?\d+\.\d+\.\d+(-(alpha|beta|rc)(\.\d+)?)?(\+[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*)?$/i
-  // autobuild 格式: 2.4.8+0425.30e2b16 (使用 semver build metadata 格式)
-  const autobuildPattern = /^v?\d+\.\d+\.\d+\+\d{4}\.[a-f0-9]{7}$/i
-  return semverPattern.test(version) || autobuildPattern.test(version)
+  return /^v?\d+\.\d+\.\d+(-(alpha|beta|rc)(\.\d+)?)?(\+[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*)?$/i.test(
+    version,
+  )
 }
 
 /**
@@ -278,12 +274,13 @@ async function main(versionArg) {
       const baseVersion = getBaseVersion(currentVersion)
 
       if (versionArg.toLowerCase() === 'autobuild') {
-        // 格式: 2.3.0+0425.30e2b16 (使用 semver build metadata 格式)
-        newVersion = `${baseVersion}+${generateShortTimestamp(true, true)}`
+        // 格式: 2.3.0+autobuild.1004.cc39b27
+        // 使用 Tauri 相关的最新 commit hash
+        newVersion = `${baseVersion}+autobuild.${generateShortTimestamp(true, true)}`
       } else if (versionArg.toLowerCase() === 'autobuild-latest') {
-        // 格式: 2.3.0+0425.a1b2c3d (使用 semver build metadata 格式)
+        // 格式: 2.3.0+autobuild.1004.a1b2c3d (使用最新 Tauri 提交)
         const latestTauriCommit = getLatestTauriCommit()
-        newVersion = `${baseVersion}+${generateShortTimestamp()}.${latestTauriCommit}`
+        newVersion = `${baseVersion}+autobuild.${generateShortTimestamp()}.${latestTauriCommit}`
       } else if (versionArg.toLowerCase() === 'deploytest') {
         // 格式: 2.3.0+deploytest.1004.cc39b27
         // 使用 Tauri 相关的最新 commit hash

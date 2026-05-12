@@ -10,8 +10,7 @@
       "connect": "Connect",
       "disconnect": "Disconnect",
       "connecting": "Connecting...",
-      "clearChainConfig": "Delete Chain Config",
-      "updateProfile": "Update Profile"
+      "clearChainConfig": "Delete Chain Config"
     },
     "provider": {
       "title": "Прокси провайдеры",
@@ -70,10 +69,6 @@
         "genericError": "Update failed: {{message}}",
         "none": "No providers available to update",
         "allUpdated": "All providers updated successfully"
-      },
-      "profile": {
-        "updateSuccess": "Profile updated successfully",
-        "updateFailed": "Failed to update profile: {{message}}"
       }
     }
   },

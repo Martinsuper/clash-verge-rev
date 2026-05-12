@@ -1,7 +1,7 @@
 use crate::{
     config::profiles,
     utils::{
-        dirs, help, jms_converter,
+        dirs, help,
         network::{NetworkManager, ProxyType},
         tmpl,
     },
@@ -253,7 +253,6 @@ impl PrfItem {
 
     /// ## Remote type
     /// create a new item from url
-    #[allow(clippy::cognitive_complexity)]
     pub async fn from_url(
         url: &str,
         name: Option<&String>,
@@ -386,29 +385,11 @@ impl PrfItem {
         let data = data.trim_start_matches('\u{feff}');
 
         // check the data whether the valid yaml format
-        // Try to parse as Clash YAML first, then try JMS format conversion
-        let data = if let Ok(y) = serde_yaml_ng::from_str::<Mapping>(data) {
-            if y.contains_key("proxies") || y.contains_key("proxy-providers") {
-                // Already valid Clash YAML, no conversion needed
-                data.to_string()
-            } else {
-                // Valid YAML but no proxies - try JMS conversion
-                log::info!(target: "app", "Valid YAML but no proxies, trying JMS conversion");
-                let converted = jms_converter::convert_jms_to_clash(data)
-                    .context("profile does not contain `proxies` or `proxy-providers` and JMS conversion failed")?;
-                log::info!(target: "app", "JMS subscription converted successfully");
-                serde_yaml_ng::from_str::<Mapping>(&converted).context("JMS conversion produced invalid YAML")?;
-                converted
-            }
-        } else {
-            // Invalid YAML - try JMS conversion
-            log::info!(target: "app", "Invalid YAML, trying JMS conversion");
-            let converted = jms_converter::convert_jms_to_clash(data)
-                .context("the remote profile data is neither valid Clash YAML nor valid JMS format")?;
-            log::info!(target: "app", "JMS subscription converted successfully");
-            serde_yaml_ng::from_str::<Mapping>(&converted).context("JMS conversion produced invalid YAML")?;
-            converted
-        };
+        let yaml = serde_yaml_ng::from_str::<Mapping>(data).context("the remote profile data is invalid yaml")?;
+
+        if !yaml.contains_key("proxies") && !yaml.contains_key("proxy-providers") {
+            bail!("profile does not contain `proxies` or `proxy-providers`");
+        }
 
         if merge.is_none() {
             let merge_item = &mut Self::from_merge(None)?;
@@ -629,97 +610,4 @@ fn fix_dirty_url(input: &str) -> Result<Url> {
     }
 
     Ok(url)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_jms_conversion_integration() -> Result<()> {
-        // Real JMS subscription content (decoded from Base64)
-        // Contains: 2 SS proxies + 4 VMess proxies
-        let jms_raw = r"ss://YWVzLTI1Ni1nY206aHgyNEs2cG1TV255QlRzREAxMDQuMTYwLjQ1LjE5Njo5OTk4#JMS-1263543@c76s1.portablesubmarines.com:9998
-ss://YWVzLTI1Ni1nY206aHgyNEs2cG1TV255QlRzREAxMDQuMTYwLjQzLjEwMjo5OTk4#JMS-1263543@c76s2.portablesubmarines.com:9998
-vmess://eyJwcyI6IkpNUy0xMjYzNTQzQGM3NnMzLnBvcnRhYmxlc3VibWFyaW5lcy5jb206OTk5OCIsInBvcnQiOiI5OTk4IiwiaWQiOiIxODI0MzU4Ni00YTY0LTQ4NmEtOTA2Mi1lODFjZmY4ZTYxNzciLCJhaWQiOjAsIm5ldCI6InRjcCIsInR5cGUiOiJub25lIiwidGxzIjoibm9uZSIsImFkZCI6IjE5OC4zNS40Ni4xMzIifQ
-vmess://eyJwcyI6IkpNUy0xMjYzNTQzQGM3NnM0LnBvcnRhYmxlc3VibWFyaW5lcy5jb206OTk5OCIsInBvcnQiOiI5OTk4IiwiaWQiOiIxODI0MzU4Ni00YTY0LTQ4NmEtOTA2Mi1lODFjZmY4ZTYxNzciLCJhaWQiOjAsIm5ldCI6InRjcCIsInR5cGUiOiJub25lIiwidGxzIjoibm9uZSIsImFkZCI6IjIxMi41MC4yNTAuMjQ3In0
-vmess://eyJwcyI6IkpNUy0xMjYzNTQzQGM3NnM1LnBvcnRhYmxlc3VibWFyaW5lcy5jb206OTk5OCIsInBvcnQiOiI5OTk4IiwiaWQiOiIxODI0MzU4Ni00YTY0LTQ4NmEtOTA2Mi1lODFjZmY4ZTYxNzciLCJhaWQiOjAsIm5ldCI6InRjcCIsInR5cGUiOiJub25lIiwidGxzIjoibm9uZSIsImFkZCI6IjE2Mi4yNDguNzQuNzcifQ
-vmess://eyJwcyI6IkpNUy0xMjYzNTQzQGM3NnM4MDEucG9ydGFibGVzdWJtYXJpbmVzLmNvbTo5OTk4IiwicG9ydCI6Ijk5OTgiLCJpZCI6IjE4MjQzNTg2LTRhNjQtNDg2YS05MDYyLWU4MWNmZjhlNjE3NyIsImFpZCI6MCwibmV0IjoidGNwIiwidHlwZSI6Im5vbmUiLCJ0bHMiOiJub25lIiwiYWRkIjoiMjEyLjUwLjIyOS4xMDMifQ";
-
-        // Step 1: JMS raw should NOT parse as valid YAML with proxies
-        let yaml_result = serde_yaml_ng::from_str::<Mapping>(jms_raw);
-        assert!(yaml_result.is_err(), "JMS raw should not be valid YAML");
-
-        // Step 2: JMS conversion should succeed
-        let converted = jms_converter::convert_jms_to_clash(jms_raw)?;
-
-        // Step 3: Converted data should be valid YAML with proxies
-        let parsed: Mapping = serde_yaml_ng::from_str(&converted)?;
-        assert!(parsed.contains_key("proxies"));
-
-        // Step 4: Verify proxy count (2 SS + 4 VMess = 6 proxies)
-        let proxies = parsed
-            .get(serde_yaml_ng::Value::String("proxies".to_string()))
-            .and_then(|v| v.as_sequence())
-            .ok_or_else(|| anyhow::anyhow!("proxies should be a sequence"))?;
-        assert!(proxies.len() >= 6, "Expected at least 6 proxies, got {}", proxies.len());
-
-        // Step 5: Verify structure
-        assert!(converted.contains("proxy-groups:"));
-        assert!(converted.contains("rules:"));
-        assert!(converted.contains("type: ss"));
-        assert!(converted.contains("type: vmess"));
-        assert!(converted.contains("JMS-1263543"));
-
-        // Step 6: Verify the from_url logic path would produce converted data
-        let would_convert = serde_yaml_ng::from_str::<Mapping>(jms_raw).is_err();
-        assert!(would_convert, "from_url logic should trigger JMS conversion");
-
-        if would_convert {
-            let file_data = jms_converter::convert_jms_to_clash(jms_raw)?;
-            assert!(
-                file_data.contains("proxies:"),
-                "file_data should be converted Clash YAML"
-            );
-            assert!(file_data.contains("c76s1.portablesubmarines.com"));
-            assert!(file_data.contains("c76s2.portablesubmarines.com"));
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_clash_yaml_passthrough() -> Result<()> {
-        // Standard Clash YAML should pass through without conversion
-        let clash_yaml = r"
-proxies:
-  - name: direct
-    type: ss
-    server: 127.0.0.1
-    port: 1080
-    cipher: aes-256-gcm
-    password: test
-proxy-groups:
-  - name: Proxy
-    type: select
-    proxies: [direct]
-rules:
-  - MATCH,Proxy
-";
-
-        // Should parse as valid YAML
-        let parsed: Mapping = serde_yaml_ng::from_str::<Mapping>(clash_yaml)?;
-        assert!(parsed.contains_key("proxies"));
-
-        // from_url logic: should use original data since it's valid Clash YAML
-        let has_proxies = parsed.contains_key("proxies") || parsed.contains_key("proxy-providers");
-        assert!(has_proxies, "Should detect proxies key");
-
-        // Verify the data would pass through without conversion
-        if has_proxies {
-            assert_eq!(clash_yaml, clash_yaml, "file_data should be the original Clash YAML");
-        }
-
-        Ok(())
-    }
 }
