@@ -11,7 +11,6 @@ permissions:
 
 env:
   TAG_NAME: autobuild
-  TAG_CHANNEL: AutoBuild
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: short
   HUSKY: 0
@@ -22,8 +21,30 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  cleanup:
+    name: Reset autobuild release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete existing autobuild assets and recreate release shell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            for asset in $(gh release view "$TAG_NAME" --json assets --jq '.assets[].name'); do
+              gh release delete-asset "$TAG_NAME" "$asset" -y || true
+            done
+          else
+            gh release create "$TAG_NAME" \
+              --title "Clash Verge Rev AutoBuild" \
+              --prerelease \
+              --notes "Build in progress..."
+          fi
+
   build:
     name: Build ${{ matrix.target }}
+    needs: [cleanup]
     strategy:
       fail-fast: false
       matrix:
@@ -88,9 +109,6 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run prebuild ${{ matrix.target }}
 
-      - name: Set autobuild version
-        run: pnpm release-version autobuild-latest
-
       - name: Disable updater signing (no TAURI key)
         shell: bash
         run: |
@@ -99,27 +117,36 @@ jobs:
           mv "$tmp" src-tauri/tauri.conf.json
 
       - name: Tauri build
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ env.TAG_NAME }}
-          releaseName: 'Clash Verge Rev ${{ env.TAG_CHANNEL }}'
-          releaseBody: 'Automated build from main branch.'
-          releaseDraft: false
-          prerelease: true
-          tauriScript: pnpm
-          args: --target ${{ matrix.target }}
+        run: pnpm build --target ${{ matrix.target }}
 
       - name: Rename Windows installer
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-2022'
         shell: pwsh
         run: |
           Get-ChildItem ".\target\${{ matrix.target }}\release\bundle\nsis\*-setup.exe" |
             ForEach-Object { Rename-Item $_.FullName ($_.Name -replace '-setup\.exe$', '.exe') }
 
+      - name: Upload artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          files=(
+            target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            target/${{ matrix.target }}/release/bundle/deb/*.deb
+            target/${{ matrix.target }}/release/bundle/rpm/*.rpm
+          )
+          for f in "${files[@]}"; do
+            echo "Uploading $(basename "$f")"
+            gh release upload "$TAG_NAME" "$f" --clobber
+          done
+
   build-arm-linux:
     name: Build ${{ matrix.target }}
+    needs: [cleanup]
     strategy:
       fail-fast: false
       matrix:
@@ -158,9 +185,6 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm run prebuild ${{ matrix.target }}
-
-      - name: Set autobuild version
-        run: pnpm release-version autobuild-latest
 
       - name: Setup multiarch apt sources
         run: |
@@ -210,12 +234,36 @@ jobs:
           fi
           pnpm build --target ${{ matrix.target }}
 
-      - name: Upload to autobuild release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ env.TAG_NAME }}
-          name: 'Clash Verge Rev ${{ env.TAG_CHANNEL }}'
-          prerelease: true
-          files: |
-            target/${{ matrix.target }}/release/bundle/deb/*.deb
-            target/${{ matrix.target }}/release/bundle/rpm/*.rpm
+      - name: Upload artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          for f in target/${{ matrix.target }}/release/bundle/deb/*.deb \
+                   target/${{ matrix.target }}/release/bundle/rpm/*.rpm; do
+            gh release upload "$TAG_NAME" "$f" --clobber
+          done
+
+  finalize:
+    name: Finalize release
+    needs: [build, build-arm-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update release body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          BUILDTIME=$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S %Z')
+          VERSION=$(jq -r .version package.json)
+          cat > body.md << EOF
+          Automated build from \`main\`.
+
+          - version: \`$VERSION\`
+          - commit: [\`$COMMIT_SHORT\`](${{ github.server_url }}/${{ github.repository }}/commit/$GITHUB_SHA)
+          - built at: $BUILDTIME
+          EOF
+          gh release edit "$TAG_NAME" --notes-file body.md
