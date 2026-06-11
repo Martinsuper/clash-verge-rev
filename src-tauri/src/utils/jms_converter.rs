@@ -7,9 +7,13 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use anyhow::{Result, bail};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{
+    Engine as _,
+    engine::general_purpose::{STANDARD as BASE64, URL_SAFE as URL_SAFE_BASE64},
+};
 use serde_json;
 use serde_yaml_ng::{Mapping, Sequence, Value};
+use tauri::Url;
 
 /// Decode Base64 if the data appears to be encoded
 /// Returns decoded string if successful, otherwise returns original
@@ -30,8 +34,7 @@ fn decode_base64_if_needed(data: &str) -> Cow<'_, str> {
         return Cow::Borrowed(trimmed);
     }
 
-    // Try Base64 decoding (handles missing padding automatically)
-    match BASE64.decode(trimmed) {
+    match decode_base64(trimmed) {
         Ok(decoded) => {
             // Try to convert to UTF-8
             match String::from_utf8(decoded) {
@@ -43,9 +46,26 @@ fn decode_base64_if_needed(data: &str) -> Cow<'_, str> {
     }
 }
 
+fn decode_base64(data: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    let normalized = normalize_base64(data);
+    BASE64
+        .decode(&normalized)
+        .or_else(|_| URL_SAFE_BASE64.decode(&normalized))
+}
+
+fn normalize_base64(data: &str) -> String {
+    let compact: String = data.chars().filter(|c| !c.is_whitespace()).collect();
+    let padding = (4 - compact.len() % 4) % 4;
+    if padding == 0 {
+        compact
+    } else {
+        format!("{}{}", compact, "=".repeat(padding))
+    }
+}
+
 /// Decode Base64 userinfo part (method:password or method:password@host:port)
 fn decode_base64_user_info(user_info: &str) -> Result<(String, String)> {
-    let decoded = BASE64.decode(user_info)?;
+    let decoded = decode_base64(user_info)?;
     let decoded_str = String::from_utf8(decoded)?;
 
     // Check if it contains @ (legacy format with embedded host:port)
@@ -167,7 +187,7 @@ pub fn parse_ss(line: &str) -> Result<HashMap<String, String>> {
     } else {
         // Legacy format - need to extract host:port from decoded userinfo
         // Decode userinfo first to get method:password@host:port
-        let decoded = BASE64.decode(userinfo)?;
+        let decoded = decode_base64(userinfo)?;
         let decoded_str = String::from_utf8(decoded)?;
 
         // Find @ in decoded string to get host:port
@@ -334,7 +354,7 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
     };
 
     // Decode base64
-    let json_bytes = BASE64.decode(&json_b64_padded)?;
+    let json_bytes = decode_base64(&json_b64_padded)?;
     let json_str = String::from_utf8(json_bytes)?;
 
     // Parse JSON
@@ -446,8 +466,6 @@ pub fn parse_vmess(line: &str) -> Result<HashMap<String, String>> {
 /// Parse Trojan URL
 /// Format: trojan://password@host:port?params#name
 pub fn parse_trojan(line: &str) -> Result<HashMap<String, String>> {
-    use url::Url;
-
     let mut result = HashMap::new();
     result.insert("type".to_string(), "trojan".to_string());
 
@@ -550,8 +568,6 @@ pub fn parse_trojan(line: &str) -> Result<HashMap<String, String>> {
 /// Parse VLESS URL
 /// Format: vless://uuid@host:port?params#name
 pub fn parse_vless(line: &str) -> Result<HashMap<String, String>> {
-    use url::Url;
-
     let mut result = HashMap::new();
     result.insert("type".to_string(), "vless".to_string());
 
@@ -712,8 +728,6 @@ fn parse_host_port(host_port: &str) -> Result<(String, u16)> {
 /// Format: hysteria://host:port?params#name
 /// Params: auth, obfs, up/upmbps, down/downmbps, alpn, sni
 pub fn parse_hysteria(line: &str) -> Result<HashMap<String, String>> {
-    use url::Url;
-
     let mut result = HashMap::new();
     result.insert("type".to_string(), "hysteria".to_string());
 
@@ -779,8 +793,6 @@ pub fn parse_hysteria(line: &str) -> Result<HashMap<String, String>> {
 /// Format: hy2://password@host:port?params#name or hysteria2://password@host:port?params#name
 /// Params: sni, obfs, obfs-password, insecure (skip-cert-verify)
 pub fn parse_hysteria2(line: &str) -> Result<HashMap<String, String>> {
-    use url::Url;
-
     let mut result = HashMap::new();
     result.insert("type".to_string(), "hysteria2".to_string());
 
@@ -985,7 +997,7 @@ pub fn parse_ssr(line: &str) -> Result<HashMap<String, String>> {
     let encoded = &line[6..];
 
     // Decode base64
-    let decoded_bytes = BASE64.decode(encoded)?;
+    let decoded_bytes = decode_base64(encoded)?;
     let decoded_str = String::from_utf8(decoded_bytes)?;
 
     // Find the position of /? to separate the main part from query params
@@ -1016,7 +1028,7 @@ pub fn parse_ssr(line: &str) -> Result<HashMap<String, String>> {
     let password_base64 = parts[5];
 
     // Decode password from base64
-    let password_bytes = BASE64.decode(password_base64)?;
+    let password_bytes = decode_base64(password_base64)?;
     let password = String::from_utf8(password_bytes)?;
 
     // Fill in basic fields
@@ -1036,7 +1048,7 @@ pub fn parse_ssr(line: &str) -> Result<HashMap<String, String>> {
                 match key {
                     "remarks" => {
                         // Remarks are base64 encoded
-                        if let Ok(decoded) = BASE64.decode(value)
+                        if let Ok(decoded) = decode_base64(value)
                             && let Ok(name) = String::from_utf8(decoded)
                         {
                             result.insert("name".to_string(), name);
@@ -1044,7 +1056,7 @@ pub fn parse_ssr(line: &str) -> Result<HashMap<String, String>> {
                     }
                     "obfsparam" => {
                         if !value.is_empty()
-                            && let Ok(decoded) = BASE64.decode(value)
+                            && let Ok(decoded) = decode_base64(value)
                             && let Ok(s) = String::from_utf8(decoded)
                         {
                             result.insert("obfs-param".to_string(), s);
@@ -1052,7 +1064,7 @@ pub fn parse_ssr(line: &str) -> Result<HashMap<String, String>> {
                     }
                     "protoparam" => {
                         if !value.is_empty()
-                            && let Ok(decoded) = BASE64.decode(value)
+                            && let Ok(decoded) = decode_base64(value)
                             && let Ok(s) = String::from_utf8(decoded)
                         {
                             result.insert("protocol-param".to_string(), s);
@@ -1060,7 +1072,7 @@ pub fn parse_ssr(line: &str) -> Result<HashMap<String, String>> {
                     }
                     "group" => {
                         if !value.is_empty()
-                            && let Ok(decoded) = BASE64.decode(value)
+                            && let Ok(decoded) = decode_base64(value)
                             && let Ok(s) = String::from_utf8(decoded)
                         {
                             result.insert("group".to_string(), s);
@@ -1410,6 +1422,16 @@ mod tests {
         let yaml = convert_jms_to_clash(&encoded).unwrap();
 
         assert!(yaml.contains("name: TestSS"));
+    }
+
+    #[test]
+    fn test_convert_jms_to_clash_base64_encoded_without_padding() {
+        let inner = "vmess://eyJwcyI6IkpNUy0xMjYzNTQzIiwicG9ydCI6Ijk5OTgiLCJpZCI6IjE4MjQzNTg2LTRhNjQtNDg2YS05MDYyLWU4MWNmZjhlNjE3NyIsImFpZCI6MCwibmV0IjoidGNwIiwidHlwZSI6Im5vbmUiLCJ0bHMiOiJub25lIiwiYWRkIjoiMTk4LjM1LjQ2LjEzMiJ9";
+        let encoded = base64_encode(inner).trim_end_matches('=').to_string();
+        let yaml = convert_jms_to_clash(&encoded).unwrap();
+
+        assert!(yaml.contains("name: JMS-1263543"));
+        assert!(yaml.contains("type: vmess"));
     }
 
     #[test]

@@ -2,6 +2,7 @@ use crate::{
     config::profiles,
     utils::{
         dirs, help,
+        jms_converter::convert_jms_to_clash,
         network::{NetworkManager, ProxyType},
         tmpl,
     },
@@ -122,6 +123,23 @@ pub struct PrfOption {
     pub proxies: Option<String>,
 
     pub groups: Option<String>,
+}
+
+fn normalize_remote_profile_data(data: &str) -> Result<std::string::String> {
+    let file_data = match serde_yaml_ng::from_str::<Mapping>(data) {
+        Ok(yaml) if yaml.contains_key("proxies") || yaml.contains_key("proxy-providers") => data.to_string(),
+        _ => {
+            convert_jms_to_clash(data).context("the remote profile data is not valid Clash YAML or JMS subscription")?
+        }
+    };
+
+    let yaml = serde_yaml_ng::from_str::<Mapping>(&file_data).context("the remote profile data is invalid yaml")?;
+
+    if !yaml.contains_key("proxies") && !yaml.contains_key("proxy-providers") {
+        bail!("profile does not contain `proxies` or `proxy-providers`");
+    }
+
+    Ok(file_data)
 }
 
 impl PrfOption {
@@ -383,13 +401,7 @@ impl PrfItem {
 
         // process the charset "UTF-8 with BOM"
         let data = data.trim_start_matches('\u{feff}');
-
-        // check the data whether the valid yaml format
-        let yaml = serde_yaml_ng::from_str::<Mapping>(data).context("the remote profile data is invalid yaml")?;
-
-        if !yaml.contains_key("proxies") && !yaml.contains_key("proxy-providers") {
-            bail!("profile does not contain `proxies` or `proxy-providers`");
-        }
+        let file_data = normalize_remote_profile_data(data)?;
 
         if merge.is_none() {
             let merge_item = &mut Self::from_merge(None)?;
@@ -438,7 +450,7 @@ impl PrfItem {
             }),
             home,
             updated: Some(chrono::Local::now().timestamp() as usize),
-            file_data: Some(data.into()),
+            file_data: Some(file_data.into()),
         })
     }
 
