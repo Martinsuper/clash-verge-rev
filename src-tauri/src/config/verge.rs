@@ -161,6 +161,12 @@ pub struct IVerge {
     /// 自动检测当前节点延迟的间隔（分钟）
     pub auto_delay_detection_interval_minutes: Option<u64>,
 
+    /// 是否启用订阅过期自动检查
+    pub enable_subscription_checker: Option<bool>,
+
+    /// 订阅过期检查间隔（分钟），默认 60
+    pub subscription_checker_interval_minutes: Option<u64>,
+
     /// 是否使用内部的脚本支持，默认为真
     pub enable_builtin_enhanced: Option<bool>,
 
@@ -533,6 +539,8 @@ impl IVerge {
         patch!(default_latency_timeout);
         patch!(enable_auto_delay_detection);
         patch!(auto_delay_detection_interval_minutes);
+        patch!(enable_subscription_checker);
+        patch!(subscription_checker_interval_minutes);
         patch!(enable_builtin_enhanced);
         patch!(proxy_layout_column);
         patch!(test_list);

@@ -87,6 +87,8 @@
       "importWithClashProxy": "Clashプロキシを使用してプロファイルのインポートに成功しました。",
       "updateAvailable": "Update Available",
       "saved": "Saved successfully",
+      "subscriptionAutoUpdated": "Subscriptions auto-updated",
+      "subscriptionAutoUpdateFailed": "Subscription auto-update failed",
       "common": {
         "copySuccess": "コピー成功",
         "saveSuccess": "ランダム設定を保存完了",

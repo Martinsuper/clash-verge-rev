@@ -87,6 +87,8 @@
       "importWithClashProxy": "使用 Clash 代理匯入訂閱成功",
       "updateAvailable": "有可用更新",
       "saved": "儲存成功",
+      "subscriptionAutoUpdated": "Subscriptions auto-updated",
+      "subscriptionAutoUpdateFailed": "Subscription auto-update failed",
       "common": {
         "copySuccess": "複製成功",
         "saveSuccess": "設定儲存完成",

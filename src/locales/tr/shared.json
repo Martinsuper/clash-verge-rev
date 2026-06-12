@@ -87,6 +87,8 @@
       "importWithClashProxy": "Profil Clash vekil ile içe aktarıldı",
       "updateAvailable": "Update Available",
       "saved": "Saved successfully",
+      "subscriptionAutoUpdated": "Subscriptions auto-updated",
+      "subscriptionAutoUpdateFailed": "Subscription auto-update failed",
       "common": {
         "copySuccess": "Kopyalama Başarılı",
         "saveSuccess": "Configuration saved successfully",

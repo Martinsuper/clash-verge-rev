@@ -284,6 +284,7 @@ pub async fn patch_verge(patch: &IVerge, not_save_file: bool) -> Result<()> {
     }
     Config::verge().await.apply();
     logging_error!(Type::Backup, AutoBackupManager::global().refresh_settings().await);
+    logging_error!(Type::Setup, crate::module::subscription_checker::SubscriptionChecker::global().refresh_settings().await);
     if !not_save_file {
         // 分离数据获取和异步调用
         let verge_data = Config::verge().await.data_arc();

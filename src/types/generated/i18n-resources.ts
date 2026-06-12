@@ -954,6 +954,8 @@ export interface TranslationResources {
             defaultLatencyTimeout: string
             enableBuiltinEnhanced: string
             proxyLayoutColumns: string
+            subscriptionChecker: string
+            subscriptionCheckerInterval: string
           }
           options: {
             autoLogClean: {
@@ -970,6 +972,7 @@ export interface TranslationResources {
             autoDelayDetection: string
             defaultLatencyTest: string
             enableBuiltinEnhanced: string
+            subscriptionChecker: string
           }
         }
         networkInterface: {
@@ -1270,6 +1273,8 @@ export interface TranslationResources {
           importSuccess: string
           importWithClashProxy: string
           saved: string
+          subscriptionAutoUpdated: string
+          subscriptionAutoUpdateFailed: string
           updateAvailable: string
         }
         validation: {

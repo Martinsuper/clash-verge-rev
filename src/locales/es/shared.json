@@ -87,6 +87,8 @@
       "importWithClashProxy": "Suscripción importada con el proxy de Clash",
       "updateAvailable": "Update Available",
       "saved": "Saved successfully",
+      "subscriptionAutoUpdated": "Subscriptions auto-updated",
+      "subscriptionAutoUpdateFailed": "Subscription auto-update failed",
       "common": {
         "copySuccess": "Copia exitosa",
         "saveSuccess": "Configuración aleatoria guardada correctamente",

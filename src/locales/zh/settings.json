@@ -403,6 +403,8 @@
         "autoLogClean": "自动清理日志",
         "autoDelayDetection": "自动延迟检测",
         "autoDelayDetectionInterval": "自动延迟检测间隔",
+        "subscriptionChecker": "订阅过期检查",
+        "subscriptionCheckerInterval": "订阅过期检查间隔",
         "defaultLatencyTest": "默认测试链接",
         "defaultLatencyTimeout": "测试超时时间"
       },
@@ -410,6 +412,7 @@
         "autoCloseConnections": "当代理组选中节点或代理模式变动时，关闭已建立的连接",
         "enableBuiltinEnhanced": "配置文件的兼容性处理",
         "autoDelayDetection": "后台定时检测当前节点延迟",
+        "subscriptionChecker": "定时检测代理连通性，如果代理不通则自动更新所有远程订阅",
         "defaultLatencyTest": "仅用于 HTTP 客户端请求测试，不会对配置文件产生影响"
       },
       "options": {

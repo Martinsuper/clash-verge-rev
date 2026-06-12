@@ -403,6 +403,8 @@
         "autoLogClean": "Otomatik Günlük Temizleme",
         "autoDelayDetection": "Otomatik Gecikme Tespiti",
         "autoDelayDetectionInterval": "Otomatik Gecikme Tespiti Aralığı",
+        "subscriptionChecker": "Subscription Expiry Check",
+        "subscriptionCheckerInterval": "Check Interval",
         "defaultLatencyTest": "Varsayılan Gecikme Testi",
         "defaultLatencyTimeout": "Varsayılan Gecikme Zaman Aşımı"
       },
@@ -410,6 +412,7 @@
         "autoCloseConnections": "Vekil grup seçimi veya vekil modu değiştiğinde kurulan bağlantıları sonlandır",
         "enableBuiltinEnhanced": "Yapılandırma dosyası için uyumluluk işleme",
         "autoDelayDetection": "Arka planda mevcut düğümün gecikmesini periyodik olarak test eder",
+        "subscriptionChecker": "Periodically check proxy connectivity, auto-update all remote subscriptions if proxy is unreachable",
         "defaultLatencyTest": "Yalnızca HTTP istemci isteği testi için kullanılır ve yapılandırma dosyasında bir fark yaratmaz"
       },
       "options": {

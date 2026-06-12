@@ -87,6 +87,8 @@
       "importWithClashProxy": "Профиль импортирован через Clash proxy",
       "updateAvailable": "Доступно обновление",
       "saved": "Успешно сохранено",
+      "subscriptionAutoUpdated": "Subscriptions auto-updated",
+      "subscriptionAutoUpdateFailed": "Subscription auto-update failed",
       "common": {
         "copySuccess": "Скопировано",
         "saveSuccess": "Конфигурация успешно сохранена",

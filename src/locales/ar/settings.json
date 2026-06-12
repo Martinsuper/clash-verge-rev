@@ -403,6 +403,8 @@
         "autoLogClean": "تنظيف السجلات تلقائيًا",
         "autoDelayDetection": "اكتشاف التأخير التلقائي",
         "autoDelayDetectionInterval": "الفاصل الزمني لاكتشاف التأخير التلقائي",
+        "subscriptionChecker": "Subscription Expiry Check",
+        "subscriptionCheckerInterval": "Check Interval",
         "defaultLatencyTest": "اختبار التأخير الافتراضي",
         "defaultLatencyTimeout": "مهلة التأخير الافتراضية"
       },
@@ -410,6 +412,7 @@
         "autoCloseConnections": "إنهاء الاتصالات القائمة عند تغيير اختيار مجموعة الوكيل أو وضع الوكيل",
         "enableBuiltinEnhanced": "معالجة توافق ملف التكوين",
         "autoDelayDetection": "يختبر زمن استجابة العقدة الحالية على نحو دوري في الخلفية",
+        "subscriptionChecker": "Periodically check proxy connectivity, auto-update all remote subscriptions if proxy is unreachable",
         "defaultLatencyTest": "يُستخدم فقط لاختبار طلب HTTP العميل. لن يؤثر على ملف التكوين"
       },
       "options": {

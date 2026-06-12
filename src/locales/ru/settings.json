@@ -403,6 +403,8 @@
         "autoLogClean": "Автоматическая очистка логов",
         "autoDelayDetection": "Автоматическое измерение задержки",
         "autoDelayDetectionInterval": "Интервал автоматического измерения задержки",
+        "subscriptionChecker": "Subscription Expiry Check",
+        "subscriptionCheckerInterval": "Check Interval",
         "defaultLatencyTest": "URL для теста задержки",
         "defaultLatencyTimeout": "Таймаут задержки по умолчанию"
       },
@@ -410,6 +412,7 @@
         "autoCloseConnections": "Закрывать установленные соединения при изменении выбора группы прокси или режима прокси",
         "enableBuiltinEnhanced": "Обработка совместимости для файла конфигурации",
         "autoDelayDetection": "Периодически проверяет задержку текущего узла в фоновом режиме",
+        "subscriptionChecker": "Periodically check proxy connectivity, auto-update all remote subscriptions if proxy is unreachable",
         "defaultLatencyTest": "Используется только для тестирования HTTP-запросов клиента и не влияет на файл конфигурации"
       },
       "options": {

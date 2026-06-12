@@ -403,6 +403,8 @@
         "autoLogClean": "Логларны автоматик чистарту",
         "autoDelayDetection": "Автоматик тоткарлык ачыклау",
         "autoDelayDetectionInterval": "Автоматик тоткарлык ачыклау интервалы",
+        "subscriptionChecker": "Subscription Expiry Check",
+        "subscriptionCheckerInterval": "Check Interval",
         "defaultLatencyTest": "Тоткарлануны тикшерү сылтамасы (defaults)",
         "defaultLatencyTimeout": "Тоткарлануның стандарт таймауты"
       },
@@ -410,6 +412,7 @@
         "autoCloseConnections": "Прокси төркеме яисә режимын үзгәрткәндә актив тоташуларны өзү",
         "enableBuiltinEnhanced": "Конфигурация файлы белән туры килә торган өстәмә оптимизация",
         "autoDelayDetection": "Фон режимында хәзерге төен тоткарлыгын периодик тикшерә",
+        "subscriptionChecker": "Periodically check proxy connectivity, auto-update all remote subscriptions if proxy is unreachable",
         "defaultLatencyTest": "Бу фәкать клиентның HTTP сораулары тесты өчен кулланыла, конфигурация файлына йогынты ясамый"
       },
       "options": {
