@@ -17,8 +17,7 @@ use tauri::Url;
 
 /// Decode Base64 if the data appears to be encoded
 /// Returns decoded string if successful, otherwise returns original
-#[allow(dead_code)]
-fn decode_base64_if_needed(data: &str) -> Cow<'_, str> {
+pub fn decode_base64_if_needed(data: &str) -> Cow<'_, str> {
     let trimmed = data.trim();
 
     // If it looks like a proxy link already, no decoding needed

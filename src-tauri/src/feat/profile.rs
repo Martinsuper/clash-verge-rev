@@ -8,6 +8,222 @@ use anyhow::{Result, bail};
 use clash_verge_logging::{Type, logging, logging_error};
 use smartstring::alias::String;
 use tauri::Emitter as _;
+use tauri_plugin_mihomo::models::ProxyType;
+
+/// 检测当前代理节点是否可用
+/// 通过 Clash API 测试代理延迟
+async fn check_current_proxy_health() -> bool {
+    let mihomo = handle::Handle::mihomo().await;
+
+    // 获取代理组信息
+    let Ok(proxies) = mihomo.get_proxies().await else {
+        logging!(warn, Type::Config, "[代理健康检测] 无法获取代理信息");
+        return false;
+    };
+
+    // 找到一个选择器类型的代理组（通常是 "PROXY" 或 "节点选择"）
+    let selector_group = proxies.proxies.values().find(|p| {
+        p.all.is_some()
+            && matches!(
+                p.proxy_type,
+                ProxyType::Selector | ProxyType::URLTest | ProxyType::Fallback
+            )
+    });
+
+    let Some(group) = selector_group else {
+        logging!(debug, Type::Config, "[代理健康检测] 未找到选择器代理组");
+        return true; // 没有选择器组，假设正常
+    };
+
+    let current_proxy = group.now.as_ref();
+    let Some(proxy_name) = current_proxy else {
+        logging!(debug, Type::Config, "[代理健康检测] 未找到当前代理节点");
+        return true;
+    };
+
+    // 跳过 DIRECT 和 REJECT
+    if proxy_name == "DIRECT" || proxy_name == "REJECT" {
+        return true;
+    }
+
+    // 测试代理延迟
+    match mihomo
+        .delay_proxy_by_name(proxy_name, "https://www.google.com", 5000)
+        .await
+    {
+        Ok(delay_result) => {
+            if delay_result.delay > 0 {
+                logging!(
+                    info,
+                    Type::Config,
+                    "[代理健康检测] 代理节点 {} 可用，延迟 {}ms",
+                    proxy_name,
+                    delay_result.delay
+                );
+                true
+            } else {
+                logging!(warn, Type::Config, "[代理健康检测] 代理节点 {} 不可用", proxy_name);
+                false
+            }
+        }
+        Err(err) => {
+            logging!(
+                warn,
+                Type::Config,
+                "[代理健康检测] 代理节点 {} 检测失败: {:?}",
+                proxy_name,
+                err
+            );
+            false
+        }
+    }
+}
+
+/// 尝试切换到可用的代理节点
+/// 遍历代理组中的所有节点，找到一个可用的
+async fn try_switch_to_available_proxy() -> bool {
+    let mihomo = handle::Handle::mihomo().await;
+
+    let Ok(proxies) = mihomo.get_proxies().await else {
+        return false;
+    };
+
+    // 找到选择器代理组
+    let selector_group = proxies.proxies.values().find(|p| {
+        p.all.is_some()
+            && matches!(
+                p.proxy_type,
+                ProxyType::Selector | ProxyType::URLTest | ProxyType::Fallback
+            )
+    });
+
+    let Some(group) = selector_group else {
+        return false;
+    };
+
+    let group_name = &group.name;
+    let all_proxies = group.all.as_deref().unwrap_or(&[]);
+
+    logging!(
+        info,
+        Type::Config,
+        "[代理切换] 尝试在 {} 个节点中查找可用节点",
+        all_proxies.len()
+    );
+
+    // 遍历所有节点，测试延迟
+    for proxy_name in all_proxies.iter().take(10) {
+        // 最多测试10个节点
+        if proxy_name == "DIRECT" || proxy_name == "REJECT" {
+            continue;
+        }
+
+        match mihomo
+            .delay_proxy_by_name(proxy_name, "https://www.google.com", 3000)
+            .await
+        {
+            Ok(delay_result) if delay_result.delay > 0 => {
+                logging!(
+                    info,
+                    Type::Config,
+                    "[代理切换] 找到可用节点: {} (延迟 {}ms)，正在切换...",
+                    proxy_name,
+                    delay_result.delay
+                );
+
+                // 切换到这个节点
+                match mihomo.select_node_for_group(group_name, proxy_name).await {
+                    Ok(_) => {
+                        logging!(info, Type::Config, "[代理切换] 成功切换到 {}", proxy_name);
+                        return true;
+                    }
+                    Err(err) => {
+                        logging!(warn, Type::Config, "[代理切换] 切换失败: {:?}", err);
+                    }
+                }
+            }
+            _ => {
+                // 节点不可用，继续测试下一个
+            }
+        }
+    }
+
+    logging!(warn, Type::Config, "[代理切换] 未找到可用节点");
+    false
+}
+
+/// 恢复保存的代理选择到 mihomo 内核
+/// 订阅更新后配置重载会重置代理组选择，需要从 profile 的 selected 字段恢复
+pub async fn restore_selected_proxies_by_uid(uid: &String) {
+    let profiles = Config::profiles().await;
+    let profiles_arc = profiles.latest_arc();
+
+    let Ok(item) = profiles_arc.get_item(uid) else {
+        logging!(warn, Type::Config, "[代理恢复] 未找到 profile {}", uid);
+        return;
+    };
+
+    let Some(selected_list) = &item.selected else {
+        logging!(debug, Type::Config, "[代理恢复] profile {} 无保存的代理选择", uid);
+        return;
+    };
+
+    if selected_list.is_empty() {
+        return;
+    }
+
+    logging!(
+        info,
+        Type::Config,
+        "[代理恢复] 开始恢复 {} 个代理组的选择",
+        selected_list.len()
+    );
+
+    let mihomo = handle::Handle::mihomo().await;
+    for selected in selected_list {
+        if let (Some(group_name), Some(proxy_name)) = (&selected.name, &selected.now) {
+            if group_name.is_empty() || proxy_name.is_empty() {
+                continue;
+            }
+            match mihomo
+                .select_node_for_group(group_name.as_str(), proxy_name.as_str())
+                .await
+            {
+                Ok(_) => {
+                    logging!(
+                        info,
+                        Type::Config,
+                        "[代理恢复] 恢复成功: {} -> {}",
+                        group_name,
+                        proxy_name
+                    );
+                }
+                Err(err) => {
+                    logging!(
+                        warn,
+                        Type::Config,
+                        "[代理恢复] 恢复失败: {} -> {}, 错误: {:?}",
+                        group_name,
+                        proxy_name,
+                        err
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// 恢复当前 profile 的代理选择
+pub async fn restore_selected_proxies() {
+    let uid = {
+        let profiles = Config::profiles().await;
+        profiles.latest_arc().get_current().cloned()
+    };
+
+    if let Some(uid) = uid {
+        restore_selected_proxies_by_uid(&uid).await;
+    }
+}
 
 /// Toggle proxy profile
 pub async fn toggle_proxy_profile(profile_index: String) {
@@ -105,6 +321,25 @@ async fn perform_profile_update(
     is_mannual_trigger: bool,
 ) -> Result<bool> {
     logging!(info, Type::Config, "[订阅更新] 开始下载新的订阅内容");
+
+    // 检测代理节点健康状态，如果不可用则尝试切换
+    if !check_current_proxy_health().await {
+        logging!(
+            warn,
+            Type::Config,
+            "[订阅更新] 当前代理节点不可用，尝试切换到可用节点..."
+        );
+        if try_switch_to_available_proxy().await {
+            logging!(info, Type::Config, "[订阅更新] 已切换到可用代理节点");
+        } else {
+            logging!(
+                warn,
+                Type::Config,
+                "[订阅更新] 无法切换到可用代理节点，将继续尝试更新订阅"
+            );
+        }
+    }
+
     let mut merged_opt = PrfOption::merge(opt, option);
     let is_current = {
         let profiles = Config::profiles().await;
@@ -208,6 +443,8 @@ pub async fn update_profile(
         match CoreManager::global().update_config_with_force(is_mannual_trigger).await {
             Ok(outcome) if outcome.is_valid() => {
                 logging!(info, Type::Config, "[订阅更新] 更新成功");
+                // 恢复之前保存的代理选择，因为配置重载会重置 mihomo 的代理组选择
+                restore_selected_proxies_by_uid(uid).await;
                 handle::Handle::refresh_clash();
             }
             Ok(outcome @ (ValidationOutcome::Skipped { .. } | ValidationOutcome::Busy)) if !is_mannual_trigger => {
@@ -231,5 +468,10 @@ pub async fn update_profile(
 
 /// 增强配置
 pub async fn enhance_profiles() -> Result<ValidationOutcome> {
-    CoreManager::global().update_config_forced().await
+    let outcome = CoreManager::global().update_config_forced().await?;
+    if outcome.is_valid() {
+        // 恢复之前保存的代理选择，因为配置重载会重置 mihomo 的代理组选择
+        restore_selected_proxies().await;
+    }
+    Ok(outcome)
 }

@@ -7,6 +7,7 @@ use crate::{
         CoreManager, handle,
         validate::{CoreConfigValidator, ValidationOutcome},
     },
+    feat,
     module::auto_backup::{AutoBackupManager, AutoBackupTrigger},
     utils::dirs,
 };
@@ -160,6 +161,8 @@ async fn handle_saved_profile_file(
     );
     match CoreManager::global().update_config_forced().await {
         Ok(outcome) if outcome.is_valid() => {
+            // 恢复之前保存的代理选择，因为配置重载会重置 mihomo 的代理组选择
+            feat::restore_selected_proxies().await;
             handle::Handle::refresh_clash();
             Ok(ValidationOutcome::Valid)
         }

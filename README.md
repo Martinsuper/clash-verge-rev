@@ -86,6 +86,115 @@ Supports Windows (x64/x86), Linux (x64/arm64) and macOS 11+ (intel/apple).
 - 系统代理和守卫、`TUN(虚拟网卡)` 模式。
 - 可视化节点和规则编辑
 - WebDav 配置备份和同步
+- **命令行工具 (cv-cli)**：支持终端快速操作，详见下方 [命令行工具](#命令行工具)
+
+---
+
+## 命令行工具
+
+Clash Verge Rev 内置了命令行工具 `cv-cli`，让你可以在终端中快速管理代理节点、更新订阅、配置规则等。
+
+### 安装命令行工具
+
+安装 Clash Verge Rev 后，运行以下命令创建全局可用的符号链接：
+
+```bash
+# macOS
+sudo ln -s "/Applications/Clash Verge.app/Contents/Resources/cv-cli-$(uname -m)-apple-darwin" /usr/local/bin/cv-cli
+
+# Linux
+sudo ln -s "$HOME/.config/io.github.clash-verge-rev.clash-verge-rev/cv-cli-$(uname -m)-unknown-linux-gnu" /usr/local/bin/cv-cli
+
+# Windows (PowerShell 管理员模式)
+New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\cv-cli.exe" -Target "$env:LOCALAPPDATA\io.github.clash-verge-rev.clash-verge-rev\cv-cli-x86_64-pc-windows-msvc.exe"
+```
+
+验证安装：
+
+```bash
+cv-cli --version
+cv-cli --help
+```
+
+### 快速开始
+
+```bash
+# 1. 查看当前状态
+cv-cli status
+
+# 2. 列出所有代理组
+cv-cli list
+
+# 3. 列出节点并测试延迟
+cv-cli list --delay
+
+# 4. 切换代理节点
+cv-cli switch PROXY "Best-Node"
+
+# 5. 更新订阅
+cv-cli update
+```
+
+### 命令参考
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `cv-cli status` | 查看当前状态（模式、代理组、订阅信息） | `cv-cli status` |
+| `cv-cli list` | 列出所有代理组和节点 | `cv-cli list -g PROXY --delay` |
+| `cv-cli switch` | 切换代理节点 | `cv-cli switch PROXY node-1` |
+| `cv-cli update` | 更新订阅 | `cv-cli update --all` |
+| `cv-cli rules list` | 列出当前规则 | `cv-cli rules list` |
+| `cv-cli rules add` | 添加规则 | `cv-cli rules add -r "DOMAIN,google.com,PROXY"` |
+| `cv-cli rules remove` | 删除规则 | `cv-cli rules remove -i 0` |
+| `cv-cli test` | 测试节点延迟 | `cv-cli test node-1 -u https://www.google.com` |
+
+### 常用场景
+
+**列出节点并测试延迟：**
+
+```bash
+cv-cli list --delay
+```
+
+输出示例：
+```
+📁 PROXY (Selector)
+   当前: node-1
+  ▶  1. node-1 [45ms]
+     2. node-2 [120ms]
+     3. node-3 [❌]
+```
+
+**添加规则让特定网站走代理：**
+
+```bash
+cv-cli rules add -r "DOMAIN,chat.openai.com,PROXY"
+cv-cli rules add -r "DOMAIN-SUFFIX,github.com,PROXY"
+```
+
+**自动化更新订阅（可配合 cron 定时任务）：**
+
+```bash
+# 每天早上 8 点自动更新订阅
+crontab -e
+0 8 * * * /usr/local/bin/cv-cli update --all >> /tmp/clash-update.log 2>&1
+```
+
+**快速切换工作/家庭模式：**
+
+```bash
+# 工作模式：直连
+cv-cli switch PROXY DIRECT
+
+# 家庭模式：全部代理
+cv-cli switch PROXY "Best-Node"
+```
+
+### 完整文档
+
+详细使用教程请参考：[命令行工具使用教程](./docs/cli-tutorial.md)
+
+---
 
 ### FAQ
 

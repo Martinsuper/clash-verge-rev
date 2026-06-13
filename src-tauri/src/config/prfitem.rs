@@ -271,6 +271,7 @@ impl PrfItem {
 
     /// ## Remote type
     /// create a new item from url
+    #[allow(clippy::cognitive_complexity)]
     pub async fn from_url(
         url: &str,
         name: Option<&String>,
@@ -401,7 +402,37 @@ impl PrfItem {
 
         // process the charset "UTF-8 with BOM"
         let data = data.trim_start_matches('\u{feff}');
-        let file_data = normalize_remote_profile_data(data)?;
+
+        // 检查订阅内容是否为空
+        if data.trim().is_empty() {
+            bail!("订阅内容为空，请检查订阅链接是否正确");
+        }
+
+        // 检查是否需要 Base64 解码并转换
+        let data = crate::utils::jms_converter::decode_base64_if_needed(data);
+
+        // 如果解码后的内容是代理链接列表，转换为 Clash YAML 格式
+        let data = if data.starts_with("ss://")
+            || data.starts_with("vmess://")
+            || data.starts_with("trojan://")
+            || data.starts_with("vless://")
+            || data.starts_with("hysteria://")
+            || data.starts_with("hysteria2://")
+            || data.starts_with("hy2://")
+            || data.starts_with("ssr://")
+        {
+            match crate::utils::jms_converter::convert_jms_to_clash(&data) {
+                Ok(yaml_str) => yaml_str,
+                Err(err) => {
+                    bail!("代理链接转换失败: {}", err);
+                }
+            }
+        } else {
+            data.to_string()
+        };
+
+        // 验证 YAML 格式并检查必要字段
+        let file_data = normalize_remote_profile_data(&data)?;
 
         if merge.is_none() {
             let merge_item = &mut Self::from_merge(None)?;

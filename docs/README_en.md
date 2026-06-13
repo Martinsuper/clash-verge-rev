@@ -89,6 +89,113 @@ Join [@clash_verge_rev](https://t.me/clash_verge_re) for update announcements.
 - System proxy controls, guard mode, and `TUN` (virtual network adapter) support
 - Visual editors for nodes and rules
 - WebDAV-based backup and sync for configurations
+- **CLI Tool (cv-cli)**: Terminal-based proxy management, see [Command Line Tool](#command-line-tool) below
+
+---
+
+## Command Line Tool
+
+Clash Verge Rev includes a built-in command line tool `cv-cli` that lets you manage proxy nodes, update subscriptions, and configure rules directly from the terminal.
+
+### Installation
+
+After installing Clash Verge Rev, run the following command to create a globally available symlink:
+
+```bash
+# macOS
+sudo ln -s "/Applications/Clash Verge.app/Contents/Resources/cv-cli-$(uname -m)-apple-darwin" /usr/local/bin/cv-cli
+
+# Linux
+sudo ln -s "$HOME/.config/io.github.clash-verge-rev.clash-verge-rev/cv-cli-$(uname -m)-unknown-linux-gnu" /usr/local/bin/cv-cli
+
+# Windows (PowerShell as Administrator)
+New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\cv-cli.exe" -Target "$env:LOCALAPPDATA\io.github.clash-verge-rev.clash-verge-rev\cv-cli-x86_64-pc-windows-msvc.exe"
+```
+
+Verify installation:
+
+```bash
+cv-cli --version
+cv-cli --help
+```
+
+### Quick Start
+
+```bash
+# 1. Check current status
+cv-cli status
+
+# 2. List all proxy groups
+cv-cli list
+
+# 3. List nodes with delay test
+cv-cli list --delay
+
+# 4. Switch proxy node
+cv-cli switch PROXY "Best-Node"
+
+# 5. Update subscription
+cv-cli update
+```
+
+### Command Reference
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `cv-cli status` | Show current status (mode, proxy groups, subscription info) | `cv-cli status` |
+| `cv-cli list` | List all proxy groups and nodes | `cv-cli list -g PROXY --delay` |
+| `cv-cli switch` | Switch proxy node | `cv-cli switch PROXY node-1` |
+| `cv-cli update` | Update subscription | `cv-cli update --all` |
+| `cv-cli rules list` | List current rules | `cv-cli rules list` |
+| `cv-cli rules add` | Add a rule | `cv-cli rules add -r "DOMAIN,google.com,PROXY"` |
+| `cv-cli rules remove` | Remove a rule | `cv-cli rules remove -i 0` |
+| `cv-cli test` | Test node delay | `cv-cli test node-1 -u https://www.google.com` |
+
+### Common Use Cases
+
+**List nodes and test delay:**
+
+```bash
+cv-cli list --delay
+```
+
+Output example:
+```
+📁 PROXY (Selector)
+   Current: node-1
+  ▶  1. node-1 [45ms]
+     2. node-2 [120ms]
+     3. node-3 [❌]
+```
+
+**Add rules for specific websites:**
+
+```bash
+cv-cli rules add -r "DOMAIN,chat.openai.com,PROXY"
+cv-cli rules add -r "DOMAIN-SUFFIX,github.com,PROXY"
+```
+
+**Auto-update subscriptions (with cron):**
+
+```bash
+# Auto-update every day at 8am
+crontab -e
+0 8 * * * /usr/local/bin/cv-cli update --all >> /tmp/clash-update.log 2>&1
+```
+
+**Quick switch work/home mode:**
+
+```bash
+# Work mode: Direct
+cv-cli switch PROXY DIRECT
+
+# Home mode: Full proxy
+cv-cli switch PROXY "Best-Node"
+```
+
+### Full Documentation
+
+For a detailed tutorial, please refer to: [CLI Tutorial](./cli-tutorial.md)
 
 ### FAQ
 

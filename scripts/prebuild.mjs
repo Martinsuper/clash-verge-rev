@@ -749,6 +749,41 @@ const resolveUnSetDnsScript = () =>
   })
 
 // =======================
+// Build cv-cli sidecar
+// =======================
+const resolveCvCli = async () => {
+  const targetFile = `cv-cli-${SIDECAR_HOST}${platform === 'win32' ? '.exe' : ''}`
+  const targetPath = path.join(SIDECAR_DIR, targetFile)
+
+  if (!FORCE && fs.existsSync(targetPath)) {
+    log_success('"cv-cli" already exists, skipping build')
+    return
+  }
+
+  log_info('Building cv-cli...')
+  const cargoArgs = ['cargo', 'build', '-p', 'clash-verge-cli', '--release']
+  execSync(cargoArgs.join(' '), { cwd, stdio: 'inherit' })
+
+  const sourcePath = path.join(
+    cwd,
+    'target',
+    'release',
+    platform === 'win32' ? 'cv-cli.exe' : 'cv-cli',
+  )
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error(`cv-cli binary not found at ${sourcePath}`)
+  }
+
+  await fsp.mkdir(SIDECAR_DIR, { recursive: true })
+  await fsp.copyFile(sourcePath, targetPath)
+  if (platform !== 'win32') {
+    execSync(`chmod 755 ${targetPath}`)
+  }
+  await updateHashCache(targetPath)
+  log_success(`cv-cli built and copied to sidecar: ${targetFile}`)
+}
+
+// =======================
 // Tasks
 // =======================
 const tasks = [
@@ -792,6 +827,11 @@ const tasks = [
     func: resolveUnSetDnsScript,
     retry: 5,
     macosOnly: true,
+  },
+  {
+    name: 'cv-cli',
+    func: resolveCvCli,
+    retry: 3,
   },
 ]
 
