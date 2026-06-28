@@ -14,7 +14,9 @@ use crate::{
         tray::Tray,
     },
     feat,
-    module::{auto_backup::AutoBackupManager, lightweight::auto_lightweight_boot, subscription_checker::SubscriptionChecker},
+    module::{
+        auto_backup::AutoBackupManager, lightweight::auto_lightweight_boot, subscription_checker::SubscriptionChecker,
+    },
     process::AsyncHandler,
     utils::{init, server, window_manager::WindowManager},
 };

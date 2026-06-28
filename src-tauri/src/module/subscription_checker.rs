@@ -157,12 +157,7 @@ impl SubscriptionChecker {
 
             // Step 3: Notify user
             if updated_count > 0 {
-                logging!(
-                    info,
-                    Type::Timer,
-                    "[订阅检查] 已自动更新 {} 个远程订阅",
-                    updated_count
-                );
+                logging!(info, Type::Timer, "[订阅检查] 已自动更新 {} 个远程订阅", updated_count);
                 Self::refresh_clash_core().await;
                 crate::core::handle::Handle::notice_message(
                     "subscription_auto_updated",
@@ -251,10 +246,15 @@ impl SubscriptionChecker {
         // If neither is enabled, the user is not routing traffic through Clash, skip test
         let verge = Config::verge().await;
         let verge_data = verge.latest_arc();
-        let proxy_enabled = verge_data.enable_system_proxy.unwrap_or(false) || verge_data.enable_tun_mode.unwrap_or(false);
+        let proxy_enabled =
+            verge_data.enable_system_proxy.unwrap_or(false) || verge_data.enable_tun_mode.unwrap_or(false);
 
         if !proxy_enabled {
-            logging!(debug, Type::Timer, "[订阅检查] 系统代理和TUN模式均未启用，跳过连通性检查");
+            logging!(
+                debug,
+                Type::Timer,
+                "[订阅检查] 系统代理和TUN模式均未启用，跳过连通性检查"
+            );
             return true; // Not a failure - user is not using the proxy
         }
 
