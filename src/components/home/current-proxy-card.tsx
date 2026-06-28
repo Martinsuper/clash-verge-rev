@@ -31,7 +31,7 @@ import { useLockFn } from 'ahooks'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { delayGroup, healthcheckProxyProvider } from 'tauri-plugin-mihomo-api'
+import { healthcheckProxyProvider } from 'tauri-plugin-mihomo-api'
 
 import { EnhancedCard } from '@/components/home/enhanced-card'
 import { useProfiles } from '@/hooks/use-profiles'
@@ -44,6 +44,7 @@ import {
   useProxiesData,
   useRulesData,
 } from '@/providers/app-data-context'
+import { updateProfile } from '@/services/cmds'
 import delayManager from '@/services/delay'
 import { debugLog } from '@/utils/debug'
 
@@ -54,6 +55,9 @@ const STORAGE_KEY_SORT_TYPE = 'clash-verge-proxy-sort-type'
 
 const AUTO_CHECK_DEFAULT_INTERVAL_MINUTES = 5
 const AUTO_CHECK_INITIAL_DELAY_MS = 100
+const AUTO_RECOVERY_COOLDOWN_MS = 60 * 1000
+const AUTO_RECOVERY_REFRESH_RETRIES = 3
+const AUTO_RECOVERY_REFRESH_RETRY_DELAY_MS = 500
 
 // 代理节点信息接口
 interface ProxyOption {
@@ -105,6 +109,36 @@ function getSignalIcon(delay: number): {
   if (delay >= 200)
     return { icon: <SignalGood />, text: '延迟良好', color: 'info.main' }
   return { icon: <SignalStrong />, text: '延迟极佳', color: 'success.main' }
+}
+
+function isUsableDelay(delay: number, timeout: number) {
+  return Number.isFinite(delay) && delay > 0 && delay < timeout && delay <= 1e5
+}
+
+function getProxyName(proxy: string | { name?: string } | null | undefined) {
+  return typeof proxy === 'string' ? proxy : proxy?.name || ''
+}
+
+function getGroupProxyNames(
+  proxyData: any,
+  groupName: string,
+  isGlobalMode: boolean,
+): string[] {
+  const group = isGlobalMode
+    ? proxyData?.global
+    : proxyData?.groups?.find(
+        (item: { name?: string }) => item.name === groupName,
+      )
+
+  const names = (group?.all || [])
+    .map(getProxyName)
+    .filter((name: string) => name && name !== 'DIRECT' && name !== 'REJECT')
+
+  return Array.from(new Set<string>(names))
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export const CurrentProxyCard = () => {
@@ -250,6 +284,8 @@ export const CurrentProxyCard = () => {
   })
 
   const autoCheckInProgressRef = useRef(false)
+  const autoRecoveryInProgressRef = useRef(false)
+  const lastAutoRecoveryAtRef = useRef(0)
   const latestTimeoutRef = useRef<number>(
     verge?.default_latency_timeout || 10000,
   )
@@ -552,6 +588,156 @@ export const CurrentProxyCard = () => {
       ? getSignalIcon(currentDelay)
       : { icon: <SignalNone />, text: '未初始化', color: 'text.secondary' }
 
+  const switchToProxy = useCallback(
+    (
+      groupName: string,
+      proxyName: string,
+      previousProxy: string,
+      proxyData?: any,
+    ) => {
+      debouncedSetState((prev: ProxyState) => ({
+        ...prev,
+        selection: {
+          ...prev.selection,
+          proxy: proxyName,
+        },
+        displayProxy:
+          prev.proxyData.records[proxyName] ||
+          proxyData?.records?.[proxyName] ||
+          null,
+      }))
+
+      if (!isGlobalMode) {
+        writeProfileScopedItem(STORAGE_KEY_PROXY, proxyName)
+      }
+
+      const skipConfigSave = isGlobalMode || isDirectMode
+      handleSelectChange(
+        groupName,
+        previousProxy,
+        skipConfigSave,
+      )({
+        target: { value: proxyName },
+      })
+    },
+    [
+      debouncedSetState,
+      handleSelectChange,
+      isDirectMode,
+      isGlobalMode,
+      writeProfileScopedItem,
+    ],
+  )
+
+  const recoverUnavailableProxy = useCallback(async () => {
+    if (autoRecoveryInProgressRef.current) return
+    if (isDirectMode) return
+
+    const now = Date.now()
+    if (now - lastAutoRecoveryAtRef.current < AUTO_RECOVERY_COOLDOWN_MS) {
+      return
+    }
+
+    const groupName = state.selection.group
+    const previousProxy = state.selection.proxy
+    if (!groupName || !previousProxy) return
+
+    autoRecoveryInProgressRef.current = true
+    lastAutoRecoveryAtRef.current = now
+
+    try {
+      debugLog(
+        `[CurrentProxyCard] 当前节点不可用，开始查找可用节点: ${previousProxy}`,
+      )
+
+      const timeout = latestTimeoutRef.current || 10000
+
+      const switchToBestAvailable = async (proxyData: any) => {
+        const candidateNames = getGroupProxyNames(
+          proxyData,
+          groupName,
+          isGlobalMode,
+        )
+
+        if (candidateNames.length === 0) return false
+
+        const result = await delayManager.checkGroupDelay(
+          groupName,
+          candidateNames,
+          timeout,
+        )
+
+        const bestProxy = candidateNames
+          .map((name) => ({
+            name,
+            delay: result[name] ?? delayManager.getDelay(name, groupName),
+          }))
+          .filter((item) => isUsableDelay(item.delay, timeout))
+          .sort((a, b) => a.delay - b.delay)[0]
+
+        if (!bestProxy) return false
+
+        if (bestProxy.name !== previousProxy) {
+          switchToProxy(groupName, bestProxy.name, previousProxy, proxyData)
+        }
+
+        return true
+      }
+
+      if (await switchToBestAvailable(proxies)) {
+        refreshProxy()
+        if (sortType === 1) {
+          setDelaySortRefresh((prev) => prev + 1)
+        }
+        return
+      }
+
+      if (!currentProfile?.uid) return
+
+      debugLog(
+        `[CurrentProxyCard] 当前组无可用节点，开始更新订阅: ${currentProfile.uid}`,
+      )
+
+      await updateProfile(currentProfile.uid, currentProfile.option)
+
+      for (
+        let attempt = 0;
+        attempt < AUTO_RECOVERY_REFRESH_RETRIES;
+        attempt += 1
+      ) {
+        if (attempt > 0) {
+          await wait(AUTO_RECOVERY_REFRESH_RETRY_DELAY_MS)
+        }
+
+        const refreshed = await refreshProxy()
+        const nextProxyData = refreshed.data || proxies
+        if (await switchToBestAvailable(nextProxyData)) {
+          break
+        }
+      }
+
+      refreshProxy()
+      if (sortType === 1) {
+        setDelaySortRefresh((prev) => prev + 1)
+      }
+    } catch (error) {
+      console.error('[CurrentProxyCard] 自动恢复可用节点失败', error)
+    } finally {
+      autoRecoveryInProgressRef.current = false
+    }
+  }, [
+    currentProfile?.option,
+    currentProfile?.uid,
+    isDirectMode,
+    isGlobalMode,
+    proxies,
+    refreshProxy,
+    sortType,
+    state.selection.group,
+    state.selection.proxy,
+    switchToProxy,
+  ])
+
   const checkCurrentProxyDelay = useCallback(async () => {
     if (autoCheckInProgressRef.current) return
     if (isDirectMode) return
@@ -577,16 +763,25 @@ export const CurrentProxyCard = () => {
       debugLog(
         `[CurrentProxyCard] 自动检测当前节点延迟，组: ${groupName}, 节点: ${proxyName}`,
       )
-      if (proxyRecord.provider) {
-        await healthcheckProxyProvider(proxyRecord.provider)
-      } else {
-        await delayManager.checkDelay(proxyName, groupName, timeout)
+      const update = proxyRecord.provider
+        ? await delayManager.checkProviderDelay(
+            proxyRecord.provider,
+            proxyName,
+            groupName,
+            timeout,
+          )
+        : await delayManager.checkDelay(proxyName, groupName, timeout)
+      const delay = update.delay
+
+      if (!isUsableDelay(delay, timeout)) {
+        await recoverUnavailableProxy()
       }
     } catch (error) {
       console.error(
         `[CurrentProxyCard] 自动检测当前节点延迟失败，组: ${groupName}, 节点: ${proxyName}`,
         error,
       )
+      await recoverUnavailableProxy()
     } finally {
       autoCheckInProgressRef.current = false
       refreshProxy()
@@ -596,6 +791,7 @@ export const CurrentProxyCard = () => {
     }
   }, [
     isDirectMode,
+    recoverUnavailableProxy,
     refreshProxy,
     state.selection.group,
     state.selection.proxy,
@@ -677,25 +873,17 @@ export const CurrentProxyCard = () => {
     const timeout = verge?.default_latency_timeout || 10000
 
     // 获取当前组的所有代理
-    const proxyNames: string[] = []
+    const allProxyNames: string[] = []
     const providers: Set<string> = new Set()
 
     if (isGlobalMode && proxies?.global) {
       // 全局模式
-      const allProxies = proxies.global.all
-        .filter((p: any) => {
-          const name = typeof p === 'string' ? p : p.name
-          return name !== 'DIRECT' && name !== 'REJECT'
-        })
-        .map((p: any) => (typeof p === 'string' ? p : p.name))
-
-      allProxies.forEach((name: string) => {
+      getGroupProxyNames(proxies, groupName, true).forEach((name) => {
         const proxy = state.proxyData.records[name]
         if (proxy?.provider) {
           providers.add(proxy.provider)
-        } else {
-          proxyNames.push(name)
         }
+        allProxyNames.push(name)
       })
     } else {
       // 规则模式
@@ -705,35 +893,32 @@ export const CurrentProxyCard = () => {
           const proxy = state.proxyData.records[name]
           if (proxy?.provider) {
             providers.add(proxy.provider)
-          } else {
-            proxyNames.push(name)
           }
+          allProxyNames.push(name)
         })
       }
     }
 
     debugLog(
-      `[CurrentProxyCard] 找到代理数量: ${proxyNames.length}, 提供者数量: ${providers.size}`,
+      `[CurrentProxyCard] 找到代理数量: ${allProxyNames.length}, 提供者数量: ${providers.size}`,
     )
 
-    // 测试提供者的节点
+    // provider healthcheck 刷新后端历史；组测速结果会直接回填前端缓存。
     if (providers.size > 0) {
       debugLog(`[CurrentProxyCard] 开始测试提供者节点`)
-      await Promise.allSettled(
+      Promise.allSettled(
         [...providers].map((p) => healthcheckProxyProvider(p)),
-      )
+      ).catch((error) => {
+        console.error('[CurrentProxyCard] 提供者健康检查出错', error)
+      })
     }
 
-    // 测试非提供者的节点
-    if (proxyNames.length > 0) {
+    if (allProxyNames.length > 0) {
       const url = delayManager.getUrl(groupName)
       debugLog(`[CurrentProxyCard] 测试URL: ${url}, 超时: ${timeout}ms`)
 
       try {
-        await Promise.race([
-          delayManager.checkListDelay(proxyNames, groupName, timeout),
-          delayGroup(groupName, url, timeout),
-        ])
+        await delayManager.checkGroupDelay(groupName, allProxyNames, timeout)
         debugLog(`[CurrentProxyCard] 延迟测试完成，组: ${groupName}`)
       } catch (error) {
         console.error(

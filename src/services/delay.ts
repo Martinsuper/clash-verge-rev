@@ -1,4 +1,10 @@
-import { delayProxyByName, ProxyDelay } from 'tauri-plugin-mihomo-api'
+import {
+  delayGroup,
+  delayProxyByName,
+  healthcheckNodeInProvider,
+  MihomoGroupDelay,
+  ProxyDelay,
+} from 'tauri-plugin-mihomo-api'
 
 import { debugLog } from '@/utils/debug'
 
@@ -181,13 +187,10 @@ class DelayManager {
     return update ? update.delay : -1
   }
 
-  /// 暂时修复provider的节点延迟排序的问题
   getDelayFix(proxy: IProxyItem, group: string) {
-    if (!proxy.provider) {
-      const update = this.getDelayUpdate(proxy.name, group)
-      if (update && (update.delay >= 0 || update.delay === -2)) {
-        return update.delay
-      }
+    const update = this.getDelayUpdate(proxy.name, group)
+    if (update && (update.delay >= 0 || update.delay === -2)) {
+      return update.delay
     }
 
     // 添加 history 属性的安全检查
@@ -227,26 +230,86 @@ class DelayManager {
         timeoutPromise,
       ])
 
-      // 确保至少显示500ms的加载动画
       const elapsedTime = Date.now() - startTime
-      if (elapsedTime < 500) {
-        await new Promise((resolve) => setTimeout(resolve, 500 - elapsedTime))
-      }
-
       const delay = result.delay
       const elapsed = elapsedTime
       debugLog(`[DelayManager] 延迟测试完成，代理: ${name}, 结果: ${delay}ms`)
 
       return this.setDelay(name, group, delay, { elapsed })
     } catch (error) {
-      // 确保至少显示500ms的加载动画
-      await new Promise((resolve) => setTimeout(resolve, 500))
       console.error(`[DelayManager] 延迟测试出错，代理: ${name}`, error)
       const delay = 1e6 // error
       const elapsed = Date.now() - startTime
 
       return this.setDelay(name, group, delay, { elapsed })
     }
+  }
+
+  async checkProviderDelay(
+    provider: string,
+    name: string,
+    group: string,
+    timeout: number,
+  ): Promise<DelayUpdate> {
+    debugLog(
+      `[DelayManager] 开始测试Provider节点延迟，Provider: ${provider}, 代理: ${name}, 组: ${group}, 超时: ${timeout}ms`,
+    )
+
+    this.setDelay(name, group, -2)
+
+    const startTime = Date.now()
+
+    try {
+      const url = this.getUrl(group)
+      const timeoutPromise = new Promise<ProxyDelay>((resolve) => {
+        setTimeout(() => resolve({ delay: 0 }), timeout)
+      })
+      const result = await Promise.race([
+        healthcheckNodeInProvider(provider, name, url, timeout),
+        timeoutPromise,
+      ])
+      const elapsed = Date.now() - startTime
+
+      debugLog(
+        `[DelayManager] Provider节点延迟测试完成，Provider: ${provider}, 代理: ${name}, 结果: ${result.delay}ms`,
+      )
+
+      return this.setDelay(name, group, result.delay, { elapsed })
+    } catch (error) {
+      console.error(
+        `[DelayManager] Provider节点延迟测试出错，Provider: ${provider}, 代理: ${name}`,
+        error,
+      )
+      const elapsed = Date.now() - startTime
+      return this.setDelay(name, group, 1e6, { elapsed })
+    }
+  }
+
+  setGroupDelayResult(
+    group: string,
+    result: MihomoGroupDelay | undefined,
+    names?: string[],
+  ) {
+    const resultMap = result || {}
+    const knownNames = names?.filter(Boolean) || Object.keys(resultMap)
+
+    knownNames.forEach((name) => {
+      const rawDelay = resultMap[name]
+      const delay = Number.isFinite(rawDelay) ? rawDelay : 0
+      this.setDelay(name, group, delay)
+    })
+
+    this.queueGroupNotification(group)
+  }
+
+  async checkGroupDelay(group: string, names: string[], timeout: number) {
+    const proxyNames = Array.from(new Set(names.filter(Boolean)))
+    proxyNames.forEach((name) => this.setDelay(name, group, -2))
+
+    const url = this.getUrl(group)
+    const result = await delayGroup(group, url, timeout)
+    this.setGroupDelayResult(group, result, proxyNames)
+    return result
   }
 
   async checkListDelay(
